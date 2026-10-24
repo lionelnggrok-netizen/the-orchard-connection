@@ -1188,16 +1188,21 @@ function initApp() {
   if (openQrBtn && qrModal) {
     openQrBtn.addEventListener("click", () => {
       qrModal.classList.remove("hidden");
+      qrModal.style.display = "flex";
     });
   }
   if (closeQrBtn && qrModal) {
     closeQrBtn.addEventListener("click", () => {
       qrModal.classList.add("hidden");
+      qrModal.style.display = "";
     });
   }
   if (qrModal) {
     qrModal.addEventListener("click", e => {
-      if (e.target === qrModal) qrModal.classList.add("hidden");
+      if (e.target === qrModal) {
+        qrModal.classList.add("hidden");
+        qrModal.style.display = "";
+      }
     });
   }
   if (copySiteUrlBtn) {

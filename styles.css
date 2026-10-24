@@ -1560,3 +1560,7 @@ body {
 .qr-download-btn:hover {
   background: #e2e8f0;
 }
+
+.header-qr-card * {
+  pointer-events: none;
+}
