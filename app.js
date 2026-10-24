@@ -13,6 +13,80 @@ let frostPreviewForced = false;
 let openChatCardIds = new Set(["tt_sample_frost_oct25"]);
 let openEditCardIds = new Set();
 
+const FORMSUBMIT_RELAY_URL = "https://formsubmit.co/ajax/c88645c3b18a800d720dd7bd398c8fc2";
+
+async function flushPendingOutboxFromBrowser() {
+  try {
+    const outboxResp = await fetch(`${API_BASE}/api/outbox?pending=1`);
+    const outboxData = await outboxResp.json();
+    if (!outboxData || !outboxData.ok || !Array.isArray(outboxData.outbox) || outboxData.outbox.length === 0) {
+      return;
+    }
+    const ackIds = [];
+    for (const job of outboxData.outbox) {
+      if (job.dispatchedToWebhook) {
+        ackIds.push(job.id);
+        continue;
+      }
+      const recipients = Array.isArray(job.recipients) ? job.recipients : [];
+      if (recipients.length === 0) {
+        ackIds.push(job.id);
+        continue;
+      }
+      const ccEmails = recipients
+        .map(r => String(r.email || "").trim().toLowerCase())
+        .filter(e => e && e.includes("@") && e !== "lionelng.grok@gmail.com");
+
+      const payload = {
+        _subject: job.subject || "The Orchard Connection Notification",
+        _template: "box",
+        _captcha: "false",
+        email: "lionelng.grok@gmail.com"
+      };
+      if (ccEmails.length > 0) {
+        payload._cc = ccEmails.join(",");
+      }
+      payload["Notification"] = job.textBody || job.subject || "";
+      if (job.googleCalUrl) {
+        payload["Add to Google Calendar"] = job.googleCalUrl;
+      }
+      if (job.cancelUrl) {
+        payload["One-Click Cancel Link"] = job.cancelUrl;
+      }
+      payload["Board Link"] = job.cardId
+        ? `https://lionelnggrok-netizen.github.io/the-orchard-connection/#${job.cardId}`
+        : "https://lionelnggrok-netizen.github.io/the-orchard-connection/";
+
+      try {
+        const fsResp = await fetch(FORMSUBMIT_RELAY_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "application/json"
+          },
+          body: JSON.stringify(payload)
+        });
+        const fsJson = await fsResp.json().catch(() => ({}));
+        if (fsResp.ok && (fsJson.success === "true" || fsJson.success === true)) {
+          ackIds.push(job.id);
+        }
+      } catch (err) {
+        console.warn("Direct email relay fallback error:", err);
+      }
+    }
+    if (ackIds.length > 0) {
+      await fetch(`${API_BASE}/api/outbox/ack`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: ackIds })
+      }).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("Outbox flush check error:", err);
+  }
+}
+
+
 function escapeHtml(str) {
   return String(str || "")
     .replace(/&/g, "&amp;")
@@ -786,6 +860,7 @@ function bindCardInteractiveEvents() {
         boardState = data;
         renderPlayerRosterAndDatalist();
         renderBoard();
+        flushPendingOutboxFromBrowser();
 
         if (data.claimed) {
           openConfirmationModal({
@@ -970,6 +1045,7 @@ function bindCardInteractiveEvents() {
         boardState = data;
         renderPlayerRosterAndDatalist();
         renderBoard();
+        flushPendingOutboxFromBrowser();
         if (data.editResult && data.editResult.message) {
           showStatusBanner(data.editResult.message, "ok");
         }
@@ -1005,6 +1081,7 @@ function bindCardInteractiveEvents() {
         }
         boardState = data;
         renderBoard();
+        flushPendingOutboxFromBrowser();
         if (data.cancelResult && data.cancelResult.message) {
           showStatusBanner(data.cancelResult.message, "cancel");
         }
@@ -1077,6 +1154,7 @@ function bindCardInteractiveEvents() {
         openChatCardIds.add(cardId);
         boardState = data;
         renderBoard();
+        flushPendingOutboxFromBrowser();
       } catch (err) {
         alert("Network error posting chat: " + err.message);
         submitBtn.disabled = false;
@@ -1128,6 +1206,7 @@ async function loadBoard() {
       boardState = data;
       renderPlayerRosterAndDatalist();
       renderBoard();
+      flushPendingOutboxFromBrowser();
     }
   } catch (err) {
     console.error("Failed to load board:", err);
@@ -1283,6 +1362,7 @@ function initApp() {
       boardState = data;
       renderPlayerRosterAndDatalist();
       renderBoard();
+      flushPendingOutboxFromBrowser();
       showStatusBanner(`${name} is now registered on The Orchard Connection player list!`);
     } catch (err) {
       btn.disabled = false;
@@ -1325,6 +1405,7 @@ function initApp() {
       boardState = data;
       renderPlayerRosterAndDatalist();
       renderBoard();
+      flushPendingOutboxFromBrowser();
 
       const firstCancel =
         data.cancelLinks && data.cancelLinks.length > 0 ? data.cancelLinks[0].cancelUrl : null;
