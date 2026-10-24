@@ -1174,8 +1174,8 @@ function initApp() {
     frostPreviewForced = !frostPreviewForced;
     frostBtn.classList.toggle("frost-forced", frostPreviewForced);
     frostLabel.textContent = frostPreviewForced
-      ? "Frost Preview: ON (Icy Blue)"
-      : "Frost: Live Forecast";
+      ? "Frost: ON"
+      : "Frost: Live";
     renderBoard();
     updateNewTeeWeatherPreview();
   });
