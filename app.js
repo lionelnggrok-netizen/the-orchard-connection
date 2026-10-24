@@ -1344,6 +1344,12 @@ function initApp() {
     }
   });
 
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get("qr") === "1" && qrModal) {
+    qrModal.classList.remove("hidden");
+    qrModal.style.display = "flex";
+  }
+
   loadBoard().then(() => {
     handleUrlCancelTokenIfPresent();
   });
