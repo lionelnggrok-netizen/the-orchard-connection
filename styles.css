@@ -1210,3 +1210,231 @@ body {
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* Card Header Edit Button & Inline Edit Drawer */
+.card-edit-trigger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #cbd5e1;
+  background: rgba(255, 255, 255, 0.9);
+  color: #334155;
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.14s ease;
+  font-family: inherit;
+}
+
+.card-edit-trigger-btn:hover,
+.card-edit-trigger-btn.active {
+  background: var(--emerald-700);
+  color: #ffffff;
+  border-color: var(--emerald-700);
+}
+
+.card-frost-risk .card-edit-trigger-btn {
+  border-color: #7dd3fc;
+  color: #0369a1;
+}
+
+.card-frost-risk .card-edit-trigger-btn:hover,
+.card-frost-risk .card-edit-trigger-btn.active {
+  background: #0284c7;
+  color: #ffffff;
+  border-color: #0284c7;
+}
+
+.card-edit-drawer {
+  background: #f8faf9;
+  border: 1.5px solid #86efac;
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  z-index: 2;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+.card-frost-risk .card-edit-drawer {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: #38bdf8;
+}
+
+.edit-drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.edit-drawer-title {
+  font-family: "Outfit", sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--emerald-800);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.card-frost-risk .edit-drawer-title {
+  color: #0369a1;
+}
+
+.edit-datetime-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.edit-datetime-row .field-group {
+  flex: 1;
+  min-width: 135px;
+}
+
+.edit-slots-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edit-slot-item {
+  background: #ffffff;
+  border: 1px solid #dce6e0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.edit-slot-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--emerald-800);
+  min-width: 58px;
+}
+
+.card-frost-risk .edit-slot-label {
+  color: #0369a1;
+}
+
+.edit-slot-select {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+  font-family: inherit;
+  max-width: 145px;
+  background: #ffffff;
+}
+
+.edit-slot-name-input,
+.edit-slot-email-input {
+  flex: 1;
+  min-width: 115px;
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12.5px;
+  font-family: inherit;
+}
+
+.edit-slot-clear-btn {
+  background: #f1f5f9;
+  border: 1px solid #cbd5e1;
+  color: #475569;
+  border-radius: 6px;
+  padding: 5px 8px;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.edit-slot-clear-btn:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.edit-verify-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.edit-verify-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 240px;
+  flex-wrap: wrap;
+}
+
+.edit-verify-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.edit-poster-email-input {
+  flex: 1;
+  min-width: 185px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1.5px solid #94a3b8;
+  font-size: 13px;
+  font-family: inherit;
+  background: #ffffff;
+}
+
+.edit-poster-email-input:focus {
+  outline: none;
+  border-color: var(--emerald-700);
+}
+
+.edit-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.btn-danger-outline {
+  padding: 7px 11px;
+  border-radius: 8px;
+  border: 1px solid #fca5a5;
+  background: #fef2f2;
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btn-danger-outline:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+}
+
+.edit-error-banner {
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  color: #b91c1c;
+  padding: 8px 11px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}

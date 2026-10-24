@@ -5,7 +5,7 @@ const GOOGLE_SHEET_ID = "1lb-2hSrPhls-_qPPp25V_jYUbPLqJCFUXcekQYmJOHU";
 
 const CORS_HEADERS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Orchard-Secret",
   "Cache-Control": "no-store"
 };
@@ -377,6 +377,7 @@ function sanitizeBoard(state) {
         course: card.course || "Orchard Hills Golf Course",
         notes: card.notes || "",
         createdAt: card.createdAt,
+        updatedAt: card.updatedAt || null,
         googleCalUrl: cal.googleCalUrl,
         icsUrl: cal.icsUrl,
         slots: (card.slots || []).map(s => ({
@@ -608,6 +609,264 @@ export default {
           createdCardId: newCard.id,
           calendar: { googleCalUrl: cal.googleCalUrl, icsUrl: cal.icsUrl },
           cancelLinks: cancelLinksForResponse
+        });
+      }
+
+      // 4b. POST /api/teetime/edit or PUT /api/teetime (Edit Tee Time Card — Verified by Slot 1 Poster Email)
+      if (
+        (path === "/api/teetime/edit" && (request.method === "POST" || request.method === "PUT")) ||
+        (path === "/api/teetime" && request.method === "PUT")
+      ) {
+        const body = await request.json();
+        const cardId = String(body.cardId || "").trim();
+        const inputPosterEmail = String(body.posterEmail || "").trim().toLowerCase();
+
+        if (!cardId) {
+          return jsonResponse({ error: "Card ID is required." }, 400);
+        }
+        if (!inputPosterEmail || !inputPosterEmail.includes("@")) {
+          return jsonResponse(
+            { error: "Please enter Slot 1 poster's email address to verify and save edits." },
+            400
+          );
+        }
+
+        const state = await loadState(env);
+        const card = state.teeTimes.find(t => t.id === cardId && !t.canceled);
+        if (!card) {
+          return jsonResponse({ error: "Tee time card not found." }, 404);
+        }
+
+        const slot1 = (card.slots || []).find(s => s.slot === 1) || card.slots[0] || {};
+        const storedPosterEmail = String(slot1.email || "").trim().toLowerCase();
+        const slot1NameLower = String(slot1.name || "").trim().toLowerCase();
+        const isLionelSlot1 =
+          storedPosterEmail === "lionel.keat@gmail.com" ||
+          storedPosterEmail === "lionelng.grok@gmail.com" ||
+          slot1NameLower === "lionel ng" ||
+          slot1NameLower === "lionel";
+
+        const posterMatches =
+          (storedPosterEmail && inputPosterEmail === storedPosterEmail) ||
+          (isLionelSlot1 &&
+            (inputPosterEmail === "lionel.keat@gmail.com" ||
+              inputPosterEmail === "lionelng.grok@gmail.com"));
+
+        if (!posterMatches) {
+          return jsonResponse(
+            { error: "Poster email does not match Slot 1's email for this tee time." },
+            403
+          );
+        }
+
+        const oldDate = card.date;
+        const oldTime = card.time;
+        const oldFriendlyWhen = formatFriendlyDateTime(oldDate, oldTime);
+        const oldSlots = (card.slots || []).map(s => ({ ...s }));
+
+        // Option A: Poster chose to cancel/delete the entire tee-time card from the Edit panel
+        if (body.cancelEntireCard === true) {
+          card.canceled = true;
+          card.canceledAt = new Date().toISOString();
+          const allNotify = [
+            ...state.players.map(p => ({ name: p.name, email: p.email })),
+            ...oldSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
+          ];
+
+          await dispatchEmailJob(env, state, {
+            type: "teetime_canceled",
+            cardId: card.id,
+            subject: `⚠️ Tee Time Canceled: Orchard Hills — ${oldFriendlyWhen}`,
+            recipients: allNotify,
+            textBody: `${slot1.name || "The poster"} canceled the Orchard Hills tee time for ${oldFriendlyWhen}. The card has been removed from the board.\n\nBoard: ${SITE_URL}`
+          });
+
+          await saveState(env, state);
+          return jsonResponse({
+            ...sanitizeBoard(state),
+            editResult: {
+              action: "card_canceled",
+              cardId: card.id,
+              message: `Tee time for ${oldFriendlyWhen} has been canceled and removed from the board.`
+            }
+          });
+        }
+
+        // Option B: Update Date, Tee Time, and/or Slots 1–4
+        const newDate = String(body.date || card.date).trim();
+        const newTime = String(body.time || card.time).trim();
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(newDate)) {
+          return jsonResponse({ error: "Please select a valid date (YYYY-MM-DD)." }, 400);
+        }
+        if (!/^\d{2}:\d{2}$/.test(newTime)) {
+          return jsonResponse({ error: "Please select a valid tee time (HH:MM)." }, 400);
+        }
+
+        const inputSlots = Array.isArray(body.slots) ? body.slots : null;
+        const newSlots = [1, 2, 3, 4].map(num => ({
+          slot: num,
+          name: null,
+          email: null,
+          cancelToken: null,
+          claimedAt: null
+        }));
+
+        if (inputSlots) {
+          for (const s of inputSlots) {
+            const idx = Number(s.slot) - 1;
+            if (idx < 0 || idx > 3) continue;
+            const sName = String(s.name || "").trim();
+            const sEmail = String(s.email || "").trim().toLowerCase();
+            if (!sName) continue;
+
+            // Check if this player was already on the card (preserving existing email/cancelToken)
+            const prevSameSlot = oldSlots[idx];
+            const prevAnywhereOnCard = oldSlots.find(
+              os => os.name && os.name.toLowerCase() === sName.toLowerCase()
+            );
+            const matchedPrev =
+              prevSameSlot &&
+              prevSameSlot.name &&
+              prevSameSlot.name.toLowerCase() === sName.toLowerCase()
+                ? prevSameSlot
+                : prevAnywhereOnCard;
+
+            if (matchedPrev && !sEmail) {
+              // Ensure player is also on registered list if they have an email
+              if (matchedPrev.email) {
+                findOrRegisterPlayer(state, matchedPrev.name, matchedPrev.email);
+              }
+              newSlots[idx] = {
+                slot: idx + 1,
+                name: matchedPrev.name,
+                email: matchedPrev.email,
+                cancelToken: matchedPrev.cancelToken || randomId("tok"),
+                claimedAt: matchedPrev.claimedAt || new Date().toISOString()
+              };
+            } else {
+              const reg = findOrRegisterPlayer(state, sName, sEmail);
+              if (reg.error) return jsonResponse({ error: reg.error }, 400);
+
+              newSlots[idx] = {
+                slot: idx + 1,
+                name: reg.player.name,
+                email: reg.player.email,
+                cancelToken:
+                  matchedPrev && matchedPrev.cancelToken
+                    ? matchedPrev.cancelToken
+                    : randomId("tok"),
+                claimedAt:
+                  matchedPrev && matchedPrev.claimedAt
+                    ? matchedPrev.claimedAt
+                    : new Date().toISOString()
+              };
+            }
+          }
+        } else {
+          for (let i = 0; i < 4; i++) {
+            if (oldSlots[i]) newSlots[i] = { ...oldSlots[i], slot: i + 1 };
+          }
+        }
+
+        if (!newSlots[0].name) {
+          return jsonResponse(
+            { error: "Slot 1 (poster/booker) must have a player name." },
+            400
+          );
+        }
+
+        card.date = newDate;
+        card.time = newTime;
+        card.slots = newSlots;
+        card.updatedAt = new Date().toISOString();
+
+        const newFriendlyWhen = formatFriendlyDateTime(newDate, newTime);
+        const dateTimeChanged = oldDate !== newDate || oldTime !== newTime;
+        const cal = buildCalendarLinks(card);
+
+        // Identify newly added players and removed players
+        const oldNamesSet = new Set(
+          oldSlots.filter(s => s.name).map(s => s.name.toLowerCase())
+        );
+        const newNamesSet = new Set(
+          newSlots.filter(s => s.name).map(s => s.name.toLowerCase())
+        );
+
+        const newlyAddedSlots = newSlots.filter(
+          s => s.name && !oldNamesSet.has(s.name.toLowerCase())
+        );
+        const removedSlots = oldSlots.filter(
+          s => s.name && !newNamesSet.has(s.name.toLowerCase())
+        );
+
+        // Send confirmation + calendar invite + cancel link to newly added players
+        for (const s of newlyAddedSlots) {
+          const cancelUrl = `${SITE_URL}?cancel=${encodeURIComponent(s.cancelToken)}`;
+          await dispatchEmailJob(env, state, {
+            type: "slot_confirmation",
+            cardId: card.id,
+            subject: `Confirmed: Orchard Hills Tee Time — ${newFriendlyWhen} [Orchard #${card.id}]`,
+            recipients: [{ name: s.name, email: s.email }],
+            cancelUrl,
+            googleCalUrl: cal.googleCalUrl,
+            icsContent: cal.icsContent,
+            textBody: `Hi ${s.name},\n\nYou've been added to Slot ${s.slot} for Orchard Hills Golf Course on ${newFriendlyWhen}!\n\nAdd to Google Calendar: ${cal.googleCalUrl}\nDownload .ics Invite: ${cal.icsUrl}\n\nOne-Click Cancel Link:\n${cancelUrl}\n\nBoard: ${SITE_URL}#${card.id}`
+          });
+        }
+
+        // Notify players on the tee time (and registered list if time changed or spots opened)
+        const openCount = newSlots.filter(s => !s.name).length;
+        const notifyPool =
+          dateTimeChanged || removedSlots.length > 0
+            ? [
+                ...state.players.map(p => ({ name: p.name, email: p.email })),
+                ...oldSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email })),
+                ...newSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
+              ]
+            : [
+                ...oldSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email })),
+                ...newSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
+              ];
+
+        const changeSummaryParts = [];
+        if (dateTimeChanged) {
+          changeSummaryParts.push(`Rescheduled from ${oldFriendlyWhen} to ${newFriendlyWhen}`);
+        }
+        if (newlyAddedSlots.length > 0) {
+          changeSummaryParts.push(
+            `Added: ${newlyAddedSlots.map(s => `${s.name} (Slot ${s.slot})`).join(", ")}`
+          );
+        }
+        if (removedSlots.length > 0) {
+          changeSummaryParts.push(
+            `Removed: ${removedSlots.map(s => `${s.name} (Slot ${s.slot})`).join(", ")}`
+          );
+        }
+        const summaryLine =
+          changeSummaryParts.length > 0
+            ? changeSummaryParts.join(" · ")
+            : `Updated tee time details for ${newFriendlyWhen}`;
+
+        await dispatchEmailJob(env, state, {
+          type: "teetime_edited",
+          cardId: card.id,
+          subject: `✎ Tee Time Updated: Orchard Hills — ${newFriendlyWhen} (${openCount} open)`,
+          recipients: notifyPool,
+          icsContent: dateTimeChanged ? cal.icsContent : null,
+          googleCalUrl: cal.googleCalUrl,
+          textBody: `${newSlots[0].name} updated the Orchard Hills tee time (${newFriendlyWhen}).\n${summaryLine}\nOpen spots: ${openCount} of 4.\n\nUpdated Calendar Invite: ${cal.googleCalUrl}\nView Board: ${SITE_URL}#${card.id}`
+        });
+
+        await saveState(env, state);
+        return jsonResponse({
+          ...sanitizeBoard(state),
+          editResult: {
+            action: "card_updated",
+            cardId: card.id,
+            when: newFriendlyWhen,
+            summary: summaryLine,
+            message: `Tee time updated (${newFriendlyWhen})! ${summaryLine}.`
+          }
         });
       }
 

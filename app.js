@@ -11,6 +11,7 @@ let boardState = {
 let weatherHourly = null; // Map of "YYYY-MM-DDTHH:00" -> { temp, dew, rain, wind, cloud, soil }
 let frostPreviewForced = false;
 let openChatCardIds = new Set(["tt_sample_frost_oct25"]);
+let openEditCardIds = new Set();
 
 function escapeHtml(str) {
   return String(str || "")
@@ -161,7 +162,6 @@ function getCardWeatherAndFrost(dateStr, timeStr) {
   let minAir = null;
   let dawnWind = null;
   let dawnCloud = null;
-  let dawnDew = null;
 
   if (weatherHourly && isMorning) {
     const checkHours = ["05:00", "06:00", "07:00", "08:00", `${String(hourNum).padStart(2, "0")}:00`];
@@ -175,7 +175,6 @@ function getCardWeatherAndFrost(dateStr, timeStr) {
         minAir = w.temp;
         dawnWind = w.wind;
         dawnCloud = w.cloud;
-        dawnDew = w.dew;
       }
     }
   }
@@ -350,10 +349,127 @@ function updateNewTeeWeatherPreview() {
   `;
 }
 
+function renderCardEditDrawerHtml(card) {
+  const isEditOpen = openEditCardIds.has(card.id);
+  const slot1Name = (card.slots && card.slots[0] && card.slots[0].name) || "Slot 1 Poster";
+
+  const editSlotsRowsHtml = (card.slots || [])
+    .map(s => {
+      const sNum = s.slot;
+      const currentName = s.name || "";
+      const isKnownOrCurrent = Boolean(currentName) || isRegisteredName(currentName);
+
+      const selectOpts = [
+        `<option value="">Pick registered...</option>`,
+        ...boardState.players.map(
+          p =>
+            `<option value="${escapeHtml(p.name)}" ${
+              p.name.toLowerCase() === currentName.toLowerCase() ? "selected" : ""
+            }>${escapeHtml(p.name)}</option>`
+        )
+      ].join("");
+
+      return `
+        <div class="edit-slot-item" data-edit-slot-row="${sNum}">
+          <span class="edit-slot-label">Slot ${sNum}${sNum === 1 ? " *" : ""}</span>
+          <select class="edit-slot-select" data-slot="${sNum}" aria-label="Select registered player for Slot ${sNum}">
+            ${selectOpts}
+          </select>
+          <input
+            type="text"
+            class="edit-slot-name-input"
+            data-slot="${sNum}"
+            data-original-name="${escapeHtml(currentName)}"
+            list="registeredPlayersDatalist"
+            placeholder="${sNum === 1 ? "Poster Name (Required)" : "Open slot (or type name)"}"
+            value="${escapeHtml(currentName)}"
+            ${sNum === 1 ? "required" : ""}
+          />
+          <input
+            type="email"
+            class="edit-slot-email-input ${isKnownOrCurrent || !currentName ? "hidden" : ""}"
+            data-slot="${sNum}"
+            placeholder="New player's email"
+          />
+          <span class="slot-email-saved-tag ${isKnownOrCurrent && currentName ? "" : "hidden"}" data-edit-saved-tag="${sNum}">
+            ✓ Email on file
+          </span>
+          ${
+            sNum > 1
+              ? `<button type="button" class="edit-slot-clear-btn" data-action="clear-edit-slot" data-slot="${sNum}" title="Clear Slot ${sNum}">Clear</button>`
+              : ""
+          }
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="card-edit-drawer ${isEditOpen ? "" : "hidden"}" data-edit-drawer="${escapeHtml(card.id)}">
+      <div class="edit-drawer-head">
+        <div class="edit-drawer-title">
+          <span>✎ Edit Tee Time &amp; Players</span>
+        </div>
+        <button type="button" class="icon-close-btn" data-action="toggle-edit" data-card-id="${escapeHtml(card.id)}" title="Close Edit">✕</button>
+      </div>
+
+      <form class="card-edit-form" data-card-id="${escapeHtml(card.id)}">
+        <div class="edit-datetime-row">
+          <div class="field-group">
+            <label>Date</label>
+            <input type="date" class="edit-date-input" value="${escapeHtml(card.date)}" required />
+          </div>
+          <div class="field-group">
+            <label>Tee Time</label>
+            <input type="time" class="edit-time-input" value="${escapeHtml(card.time)}" required />
+          </div>
+        </div>
+
+        <div class="edit-slots-stack" style="margin-top:10px;">
+          ${editSlotsRowsHtml}
+        </div>
+
+        <div class="edit-error-banner hidden" data-edit-error="${escapeHtml(card.id)}" style="margin-top:10px;"></div>
+
+        <div class="edit-verify-footer" style="margin-top:10px;">
+          <div class="edit-verify-group">
+            <label class="edit-verify-label">🔒 Verify Slot 1 (${escapeHtml(slot1Name)}) Email:</label>
+            <input
+              type="email"
+              class="edit-poster-email-input"
+              placeholder="Enter ${escapeHtml(slot1Name)}'s email to save"
+              required
+            />
+          </div>
+
+          <div class="edit-actions-right">
+            <button
+              type="button"
+              class="btn-danger-outline"
+              data-action="cancel-entire-card-edit"
+              data-card-id="${escapeHtml(card.id)}"
+              title="Cancel and remove this entire tee-time card"
+            >
+              🗑 Cancel Tee Time
+            </button>
+            <span class="save-hint">Save</span>
+            <button type="submit" class="check-circle-btn" title="Verify Slot 1 Email &amp; Save Changes" aria-label="Save Tee Time Changes">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  `;
+}
+
 function renderTeeTimeCard(card, isPast = false) {
   const wf = getCardWeatherAndFrost(card.date, card.time);
   const openSlotsCount = card.slots.filter(s => !s.filled).length;
   const frostClass = !isPast && wf.isFrostRisk ? "card-frost-risk" : "";
+  const isEditOpen = openEditCardIds.has(card.id);
 
   const weatherBadgeHtml = wf.hasForecast
     ? `
@@ -476,7 +592,7 @@ function renderTeeTimeCard(card, isPast = false) {
 
   return `
     <article id="${escapeHtml(card.id)}" class="teetime-card ${frostClass}" data-card-id="${escapeHtml(card.id)}">
-      <!-- Minimal Header: Date & Tee Time + Live Weather / Frost Badge -->
+      <!-- Minimal Header: Date & Tee Time + Edit Button + Live Weather / Frost Badge -->
       <div class="card-header">
         <div class="card-datetime-block">
           <div class="card-date-row">
@@ -484,6 +600,15 @@ function renderTeeTimeCard(card, isPast = false) {
             <span class="spots-pill ${openSlotsCount === 0 ? "spots-full" : ""}">
               ${openSlotsCount === 0 ? "Full (4/4)" : `${openSlotsCount} spot${openSlotsCount === 1 ? "" : "s"} open`}
             </span>
+            <button
+              type="button"
+              class="card-edit-trigger-btn ${isEditOpen ? "active" : ""}"
+              data-action="toggle-edit"
+              data-card-id="${escapeHtml(card.id)}"
+              title="Edit Tee Time or Players (verifies Slot 1 poster's email)"
+            >
+              ✎ Edit
+            </button>
           </div>
           <div class="card-time-text">
             ${!isPast && wf.isFrostRisk ? `<span aria-hidden="true">❄️</span>` : ""}
@@ -496,6 +621,9 @@ function renderTeeTimeCard(card, isPast = false) {
           ${frostAlertHtml}
         </div>
       </div>
+
+      <!-- Inline Edit Drawer (Verified by Slot 1 Poster Email) -->
+      ${renderCardEditDrawerHtml(card)}
 
       <!-- 4 Player Slots (Strictly 4, No Waitlist) -->
       <div class="slots-list">
@@ -676,7 +804,183 @@ function bindCardInteractiveEvents() {
     });
   });
 
-  // 2. Inline Cancel / Drop Button
+  // 2. Toggle Inline Card Edit Drawer ("✎ Edit")
+  document.querySelectorAll("[data-action='toggle-edit']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cardId = btn.getAttribute("data-card-id");
+      const drawer = document.querySelector(`[data-edit-drawer="${cardId}"]`);
+      if (!drawer) return;
+      const isHidden = drawer.classList.contains("hidden");
+      if (isHidden) {
+        drawer.classList.remove("hidden");
+        openEditCardIds.add(cardId);
+      } else {
+        drawer.classList.add("hidden");
+        openEditCardIds.delete(cardId);
+      }
+      document
+        .querySelectorAll(`.card-edit-trigger-btn[data-card-id="${cardId}"]`)
+        .forEach(b => b.classList.toggle("active", isHidden));
+    });
+  });
+
+  // 2b. Inline Card Edit Form Interactions & Submission (Verifies Slot 1 Poster Email)
+  document.querySelectorAll(".card-edit-form").forEach(form => {
+    const cardId = form.getAttribute("data-card-id");
+    const errBanner = form.querySelector(`[data-edit-error="${cardId}"]`);
+
+    function showEditError(msg) {
+      if (!errBanner) return;
+      if (!msg) {
+        errBanner.classList.add("hidden");
+        errBanner.textContent = "";
+      } else {
+        errBanner.textContent = msg;
+        errBanner.classList.remove("hidden");
+      }
+    }
+
+    form.querySelectorAll(".edit-slot-item").forEach(row => {
+      const selectEl = row.querySelector(".edit-slot-select");
+      const nameInp = row.querySelector(".edit-slot-name-input");
+      const emailInp = row.querySelector(".edit-slot-email-input");
+      const savedTag = row.querySelector(".slot-email-saved-tag");
+      const clearBtn = row.querySelector("[data-action='clear-edit-slot']");
+      const origName = String(nameInp.getAttribute("data-original-name") || "").trim().toLowerCase();
+
+      function syncRowEmailField() {
+        const val = String(nameInp.value || "").trim();
+        const isSameAsOriginal = Boolean(val && origName && val.toLowerCase() === origName);
+        if (!val) {
+          emailInp.classList.add("hidden");
+          emailInp.required = false;
+          emailInp.value = "";
+          savedTag.classList.add("hidden");
+        } else if (isSameAsOriginal || isRegisteredName(val)) {
+          emailInp.classList.add("hidden");
+          emailInp.required = false;
+          emailInp.value = "";
+          savedTag.classList.remove("hidden");
+        } else {
+          emailInp.classList.remove("hidden");
+          emailInp.required = true;
+          savedTag.classList.add("hidden");
+        }
+      }
+
+      selectEl.addEventListener("change", () => {
+        if (selectEl.value) {
+          nameInp.value = selectEl.value;
+        }
+        syncRowEmailField();
+      });
+
+      nameInp.addEventListener("input", () => {
+        syncRowEmailField();
+      });
+
+      if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+          selectEl.value = "";
+          nameInp.value = "";
+          syncRowEmailField();
+        });
+      }
+    });
+
+    // Cancel Entire Tee Time button inside Edit Drawer (requires Slot 1 poster's email)
+    const cancelCardBtn = form.querySelector("[data-action='cancel-entire-card-edit']");
+    if (cancelCardBtn) {
+      cancelCardBtn.addEventListener("click", async () => {
+        showEditError("");
+        const posterEmailInp = form.querySelector(".edit-poster-email-input");
+        const posterEmail = String(posterEmailInp.value || "").trim();
+        if (!posterEmail || !posterEmail.includes("@")) {
+          showEditError("Please enter Slot 1 poster's email first to verify before canceling the tee time.");
+          posterEmailInp.focus();
+          return;
+        }
+        if (!confirm("Cancel this entire tee-time card and notify all players on it?")) return;
+
+        cancelCardBtn.disabled = true;
+        try {
+          const resp = await fetch(`${API_BASE}/api/teetime/edit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ cardId, posterEmail, cancelEntireCard: true })
+          });
+          const data = await resp.json();
+          cancelCardBtn.disabled = false;
+          if (!resp.ok) {
+            showEditError(data.error || "Could not verify poster email.");
+            return;
+          }
+          openEditCardIds.delete(cardId);
+          boardState = data;
+          renderPlayerRosterAndDatalist();
+          renderBoard();
+          if (data.editResult && data.editResult.message) {
+            showStatusBanner(data.editResult.message, "cancel");
+          }
+        } catch (err) {
+          cancelCardBtn.disabled = false;
+          showEditError("Network error: " + err.message);
+        }
+      });
+    }
+
+    // Submit Edit Form (Save Date, Tee Time, and/or 4 Player Slots)
+    form.addEventListener("submit", async e => {
+      e.preventDefault();
+      showEditError("");
+
+      const date = form.querySelector(".edit-date-input").value;
+      const time = form.querySelector(".edit-time-input").value;
+      const posterEmail = String(form.querySelector(".edit-poster-email-input").value || "").trim();
+
+      if (!posterEmail || !posterEmail.includes("@")) {
+        showEditError("Please enter Slot 1 poster's email address to verify and save changes.");
+        return;
+      }
+
+      const slots = [];
+      for (let s = 1; s <= 4; s++) {
+        const nameInp = form.querySelector(`.edit-slot-name-input[data-slot="${s}"]`);
+        const emailInp = form.querySelector(`.edit-slot-email-input[data-slot="${s}"]`);
+        const sName = String(nameInp ? nameInp.value : "").trim();
+        const sEmail = String(emailInp ? emailInp.value : "").trim();
+        slots.push({ slot: s, name: sName, email: sEmail });
+      }
+
+      const submitBtn = form.querySelector("button[type='submit']");
+      submitBtn.disabled = true;
+      try {
+        const resp = await fetch(`${API_BASE}/api/teetime/edit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardId, posterEmail, date, time, slots })
+        });
+        const data = await resp.json();
+        submitBtn.disabled = false;
+        if (!resp.ok) {
+          showEditError(data.error || "Could not save edits.");
+          return;
+        }
+        openEditCardIds.delete(cardId);
+        boardState = data;
+        renderPlayerRosterAndDatalist();
+        renderBoard();
+        if (data.editResult && data.editResult.message) {
+          showStatusBanner(data.editResult.message, "ok");
+        }
+      } catch (err) {
+        submitBtn.disabled = false;
+        showEditError("Network error saving edits: " + err.message);
+      }
+    });
+  });
+
+  // 3. Inline Cancel / Drop Button
   document.querySelectorAll("[data-action='cancel-slot']").forEach(btn => {
     btn.addEventListener("click", async () => {
       const cardId = btn.getAttribute("data-card-id");
@@ -710,7 +1014,7 @@ function bindCardInteractiveEvents() {
     });
   });
 
-  // 3. Toggle Card Chat
+  // 4. Toggle Card Chat
   document.querySelectorAll("[data-action='toggle-chat']").forEach(btn => {
     btn.addEventListener("click", () => {
       const cardId = btn.getAttribute("data-card-id");
@@ -727,7 +1031,7 @@ function bindCardInteractiveEvents() {
     });
   });
 
-  // 4. Share / Copy Card Invite
+  // 5. Share / Copy Card Invite
   document.querySelectorAll("[data-action='share-card']").forEach(btn => {
     btn.addEventListener("click", async () => {
       const cardId = btn.getAttribute("data-card-id");
@@ -745,7 +1049,7 @@ function bindCardInteractiveEvents() {
     });
   });
 
-  // 5. Card Chat Compose Submit
+  // 6. Card Chat Compose Submit
   document.querySelectorAll(".chat-compose-form").forEach(form => {
     form.addEventListener("submit", async e => {
       e.preventDefault();

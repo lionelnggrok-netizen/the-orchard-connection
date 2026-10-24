@@ -24,3 +24,6 @@ Tee-time coordination board for **Orchard Hills Golf Course** (Paramus, NJ · `4
 5. **Per-Card Mini Chat Thread + Email Reply Sync**:
    - Each card has an inline chat thread that emails **only the players signed up on that specific tee-time card**.
    - Replies to `[Orchard #<cardId>]` emails sync back into that card's chat thread via `/api/email/inbound`.
+6. **Poster Card Editing (`✎ Edit` + Slot 1 Email Verification)**:
+   - Each tee-time card includes a `✎ Edit` button that opens an inline edit drawer for that card.
+   - The poster can update the Date, Tee Time, or any of the 4 Player Slots (or cancel the entire card) by entering **Slot 1 Poster's Email** (`POST /api/teetime/edit`) and clicking the green checkmark circle (`✓`).
