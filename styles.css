@@ -1924,3 +1924,18 @@ body {
     padding: 3px 7px;
   }
 }
+
+@media (max-width: 680px) {
+  .header-qr-meta {
+    display: none;
+  }
+  .header-qr-card {
+    padding: 3px;
+    border-radius: 8px;
+  }
+  .brand-title {
+    font-size: 17.5px;
+    overflow: visible;
+    text-overflow: clip;
+  }
+}
