@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Orchard Connection — Orchard Hills Tee Sheet Board</title>
+  <meta name="description" content="Tee-time coordination board for Orchard Hills Golf Course (Paramus, NJ). Claim spots, check live weather & dawn frost delay risk, and chat with your group." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Top Ambient Banner -->
+  <header class="site-header">
+    <div class="header-inner">
+      <div class="brand-group">
+        <div class="brand-logo" aria-hidden="true">⛳</div>
+        <div>
+          <div class="brand-eyebrow">ORCHARD HILLS GOLF COURSE · PARAMUS, NJ</div>
+          <h1 class="brand-title">The Orchard Connection</h1>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <button id="frostPreviewBtn" class="btn btn-frost-toggle" type="button" title="Toggle icy-blue frost delay preview on morning cards">
+          <span class="frost-icon">❄️</span>
+          <span id="frostPreviewLabel">Frost: Live Forecast</span>
+        </button>
+        <button id="openJoinPlayerModalBtn" class="btn btn-secondary" type="button">
+          <span>👤 Join Player List</span>
+          <span id="playerCountBadge" class="pill-count">1</span>
+        </button>
+        <button id="openAddTeeTimeBtn" class="btn btn-primary" type="button">
+          <span>＋ Add Tee Time</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-container">
+    <!-- Status / One-Click Cancel Alert Banner -->
+    <div id="statusBanner" class="status-banner hidden" role="status" aria-live="polite">
+      <div class="status-banner-content">
+        <span id="statusBannerIcon" class="status-banner-icon">✓</span>
+        <div id="statusBannerText" class="status-banner-text"></div>
+      </div>
+      <button id="closeStatusBannerBtn" class="status-banner-close" type="button" aria-label="Dismiss notice">✕</button>
+    </div>
+
+    <!-- Collapsible "+ Add Tee Time" Card Builder -->
+    <section id="addTeeTimePanel" class="panel-card hidden" aria-labelledby="addTeeTimeHeading">
+      <div class="panel-header">
+        <div>
+          <h2 id="addTeeTimeHeading" class="panel-title">Post a New Tee Time</h2>
+          <p class="panel-subtitle">Fill in Date, Tee Time, and Slot 1 (poster), plus any already-confirmed friends, then click the green checkmark circle.</p>
+        </div>
+        <button id="closeAddTeeTimeBtn" class="icon-close-btn" type="button" aria-label="Close form">✕</button>
+      </div>
+
+      <form id="addTeeTimeForm" class="add-teetime-form">
+        <div class="datetime-row">
+          <div class="field-group">
+            <label for="newTeeDate">Date</label>
+            <input type="date" id="newTeeDate" required />
+          </div>
+          <div class="field-group">
+            <label for="newTeeTime">Tee Time</label>
+            <input type="time" id="newTeeTime" required />
+          </div>
+          <div id="newTeeWeatherPreview" class="new-weather-preview">
+            Pick a date &amp; time to preview Orchard Hills forecast
+          </div>
+        </div>
+
+        <div class="slots-builder-label">4-Player Card Slots (Strictly 4 Slots · Emails Stay Private)</div>
+        <div class="slots-builder-grid" id="newTeeSlotsContainer">
+          <!-- Populated dynamically by app.js for Slots 1..4 -->
+        </div>
+
+        <div class="form-footer-row">
+          <div class="privacy-note">
+            🔒 Only player names appear on the board. Saving sends calendar invites &amp; 1-click cancel links and alerts the player list.
+          </div>
+          <div class="form-submit-group">
+            <span class="save-hint">Save Tee Time</span>
+            <button type="submit" id="saveNewTeeTimeBtn" class="check-circle-btn check-circle-lg" title="Save Tee Time Card" aria-label="Save Tee Time Card">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"></polyline>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </form>
+    </section>
+
+    <!-- Collapsible "Join Player List" Panel -->
+    <section id="joinPlayerPanel" class="panel-card hidden" aria-labelledby="joinPlayerHeading">
+      <div class="panel-header">
+        <div>
+          <h2 id="joinPlayerHeading" class="panel-title">👤 Registered Player List</h2>
+          <p class="panel-subtitle">Register once to get alerts when tee times or spots open up—and pick your name from the dropdown without re-typing your email.</p>
+        </div>
+        <button id="closeJoinPlayerBtn" class="icon-close-btn" type="button" aria-label="Close player list panel">✕</button>
+      </div>
+
+      <form id="joinPlayerForm" class="join-player-form">
+        <div class="join-inputs-row">
+          <input type="text" id="joinPlayerName" placeholder="Your Name (e.g. Alex S.)" required />
+          <input type="email" id="joinPlayerEmail" placeholder="Your Email (kept 100% private)" required />
+          <button type="submit" id="saveJoinPlayerBtn" class="check-circle-btn" title="Save to Player List" aria-label="Save to Player List">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+        </div>
+      </form>
+
+      <div class="registered-roster">
+        <span class="roster-label">Registered Players (Names Only):</span>
+        <div id="registeredPlayersChips" class="roster-chips"></div>
+      </div>
+    </section>
+
+    <!-- Upcoming Tee Times Section -->
+    <section class="board-section" aria-labelledby="upcomingHeading">
+      <div class="section-bar">
+        <div class="section-title-group">
+          <h2 id="upcomingHeading" class="section-title">Upcoming Tee Times</h2>
+          <span id="upcomingCountBadge" class="section-badge">0</span>
+        </div>
+        <div class="weather-legend">
+          <span class="legend-item"><span class="legend-dot legend-dot-frost"></span> ❄️ Icy Blue = Dawn Frost Delay Risk (&le;36°F grass/air)</span>
+        </div>
+      </div>
+
+      <div id="upcomingCardsGrid" class="cards-grid">
+        <!-- Populated by app.js -->
+      </div>
+    </section>
+
+    <!-- Collapsed Past Rounds Section -->
+    <section class="past-rounds-section" aria-labelledby="pastRoundsToggleBtn">
+      <button id="pastRoundsToggleBtn" class="past-rounds-toggle" type="button" aria-expanded="false">
+        <div class="past-toggle-left">
+          <span id="pastChevron" class="past-chevron">▸</span>
+          <span class="past-title">Past Rounds</span>
+          <span id="pastCountBadge" class="section-badge section-badge-muted">0</span>
+        </div>
+        <span id="pastToggleHint" class="past-toggle-hint">Click to expand finished rounds</span>
+      </button>
+
+      <div id="pastCardsContainer" class="cards-grid past-cards-grid hidden">
+        <!-- Populated by app.js -->
+      </div>
+    </section>
+  </main>
+
+  <!-- Confirmation & Calendar Invite Modal -->
+  <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-check-badge">✓</div>
+        <div>
+          <h3 id="confirmModalTitle" class="modal-title">Spot Saved!</h3>
+          <p id="confirmModalSubtitle" class="modal-subtitle"></p>
+        </div>
+        <button id="closeConfirmModalBtn" class="icon-close-btn" type="button" aria-label="Close modal">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-actions-row">
+          <a id="modalGoogleCalLink" href="#" target="_blank" rel="noopener" class="btn btn-primary">📅 Add to Google Calendar</a>
+          <a id="modalIcsLink" href="#" class="btn btn-secondary">📥 Download .ics Invite</a>
+        </div>
+        <div id="modalCancelLinkBox" class="modal-cancel-box">
+          <div class="modal-cancel-label">One-Click Cancel Link (also included in confirmation email):</div>
+          <div class="modal-cancel-row">
+            <input type="text" id="modalCancelUrlInput" readonly />
+            <button type="button" id="copyCancelUrlBtn" class="btn btn-sm">Copy Link</button>
+          </div>
+          <p class="modal-cancel-note">If plans change, opening this link immediately removes your name and reopens the spot (or cancels the whole tee time if Slot 1).</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <span><strong>The Orchard Connection</strong> · Orchard Hills Golf Course (Paramus, NJ)</span>
+      <span class="footer-sep">·</span>
+      <span>Live Forecast &amp; 0cm Grass Frost Telemetry via Open-Meteo</span>
+      <span class="footer-sep">·</span>
+      <span>Private Email &amp; Calendar Backend</span>
+    </div>
+  </footer>
+
+  <datalist id="registeredPlayersDatalist"></datalist>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+name = "the-orchard-connection"
+main = "index.js"
+compatibility_date = "2026-10-01"
+
+[[kv_namespaces]]
+binding = "ORCHARD_KV"
+id = "ec8ed4d895624b308abf41ec9542bf12"
