@@ -1438,3 +1438,125 @@ body {
   font-size: 12.5px;
   font-weight: 600;
 }
+
+/* Header QR Code Badge & Enlarge Modal */
+.header-qr-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px 5px 6px;
+  margin-left: 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  transition: transform 0.15s ease, background 0.15s ease, box-shadow 0.15s ease;
+}
+
+.header-qr-card:hover {
+  background: rgba(255, 255, 255, 0.24);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.header-qr-thumb {
+  width: 54px;
+  height: 54px;
+  min-width: 54px;
+  background: #ffffff;
+  padding: 3px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+}
+
+.header-qr-thumb svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.header-qr-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.header-qr-title {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.header-qr-sub {
+  font-size: 11px;
+  font-weight: 600;
+  color: #a7f3d0;
+}
+
+.qr-modal-card {
+  max-width: 420px;
+  text-align: center;
+}
+
+.qr-modal-card .modal-header {
+  text-align: left;
+}
+
+.qr-modal-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.qr-modal-frame {
+  width: 240px;
+  height: 240px;
+  padding: 12px;
+  background: #ffffff;
+  border: 2px solid #dce6e0;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px rgba(15, 31, 23, 0.08);
+}
+
+.qr-modal-frame svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.qr-modal-url {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+  background: #f1f5f9;
+  padding: 7px 12px;
+  border-radius: 8px;
+  word-break: break-all;
+  width: 100%;
+}
+
+.qr-modal-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.qr-download-btn {
+  background: #f1f5f9;
+  color: #0f172a;
+  border-color: #cbd5e1;
+}
+
+.qr-download-btn:hover {
+  background: #e2e8f0;
+}

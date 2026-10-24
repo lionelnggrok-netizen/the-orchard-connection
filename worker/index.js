@@ -20,14 +20,10 @@ function jsonResponse(data, status = 200) {
   });
 }
 
-// CRITICAL STANDING RULE: Never email lionel.keat@gmail.com (or Lionel Ng).
-// All notifications for Lionel are chat-only in Grok Bot.
+// Email filter: lionel.keat@gmail.com is explicitly authorized by Lionel to receive tee-time & card-chat emails.
 function isNeverEmail(email, name) {
   const e = String(email || "").trim().toLowerCase();
-  const n = String(name || "").trim().toLowerCase();
-  if (!e) return true;
-  if (e === "lionel.keat@gmail.com" || e === "lionelng.grok@gmail.com") return true;
-  if (n === "lionel ng" || n === "lionel") return true;
+  if (!e || !e.includes("@")) return true;
   return false;
 }
 
@@ -46,7 +42,7 @@ function defaultState() {
         name: "Lionel Ng",
         email: "lionel.keat@gmail.com",
         createdAt: "2026-10-24T15:00:00Z",
-        chatOnly: true
+        chatOnly: false
       }
     ],
     teeTimes: [
@@ -203,14 +199,14 @@ function findOrRegisterPlayer(state, rawName, rawEmail) {
     return { player: existing, isNew: false };
   }
 
-  // If name is Lionel, never require or send email
-  if (isNeverEmail(email, name)) {
+  const nLower = name.toLowerCase();
+  if (!email && (nLower === "lionel ng" || nLower === "lionel")) {
     const lionel = {
       id: randomId("plr"),
       name,
       email: "lionel.keat@gmail.com",
       createdAt: new Date().toISOString(),
-      chatOnly: true
+      chatOnly: false
     };
     state.players.push(lionel);
     return { player: lionel, isNew: true };
@@ -1168,6 +1164,47 @@ export default {
           ...sanitizeBoard(state),
           inboundMessage: msg
         });
+      }
+
+      // 8b. GET /api/outbox & POST /api/outbox/ack (Outbox inspection & delivery acknowledgment)
+      if (path === "/api/outbox" && request.method === "GET") {
+        const state = await loadState(env);
+        const pendingOnly = url.searchParams.get("pending") === "1";
+        const items = pendingOnly
+          ? (state.outbox || []).filter(j => !j.dispatchedToWebhook && (j.recipients || []).length > 0)
+          : (state.outbox || []);
+        return jsonResponse({
+          ok: true,
+          count: items.length,
+          gasWebhookUrlConfigured: Boolean(state.gasWebhookUrl || env.GAS_WEBHOOK_URL),
+          outbox: items
+        });
+      }
+
+      if (path === "/api/outbox/ack" && request.method === "POST") {
+        const body = await request.json().catch(() => ({}));
+        const ids = Array.isArray(body.ids) ? new Set(body.ids) : new Set();
+        const state = await loadState(env);
+        let acked = 0;
+        for (const item of state.outbox || []) {
+          if (ids.has(item.id)) {
+            item.dispatchedToWebhook = true;
+            item.deliveredAt = new Date().toISOString();
+            acked++;
+          }
+        }
+        await saveState(env, state);
+        return jsonResponse({ ok: true, acked });
+      }
+
+      if (path === "/api/config/webhook" && request.method === "POST") {
+        const body = await request.json().catch(() => ({}));
+        const state = await loadState(env);
+        if (typeof body.gasWebhookUrl === "string") {
+          state.gasWebhookUrl = body.gasWebhookUrl.trim();
+        }
+        await saveState(env, state);
+        return jsonResponse({ ok: true, gasWebhookUrl: state.gasWebhookUrl });
       }
 
       // 9. POST /api/reset-demo (Reset to default state)

@@ -791,7 +791,7 @@ function bindCardInteractiveEvents() {
           openConfirmationModal({
             title: `Slot ${data.claimed.slot} Claimed — ${data.claimed.name}`,
             subtitle:
-              "Your spot is locked in! Confirmation & one-click cancel link have been processed (Lionel's alerts stay chat-only).",
+              "Your spot is locked in! Confirmation email, calendar invite & one-click cancel link are ready.",
             googleCalUrl: data.claimed.googleCalUrl,
             icsUrl: data.claimed.icsUrl,
             cancelUrl: data.claimed.cancelUrl
@@ -1179,6 +1179,41 @@ function initApp() {
     renderBoard();
     updateNewTeeWeatherPreview();
   });
+
+  // QR Code Modal toggle & copy link
+  const qrModal = document.getElementById("qrModal");
+  const openQrBtn = document.getElementById("openQrModalBtn");
+  const closeQrBtn = document.getElementById("closeQrModalBtn");
+  const copySiteUrlBtn = document.getElementById("copySiteUrlBtn");
+  if (openQrBtn && qrModal) {
+    openQrBtn.addEventListener("click", () => {
+      qrModal.classList.remove("hidden");
+    });
+  }
+  if (closeQrBtn && qrModal) {
+    closeQrBtn.addEventListener("click", () => {
+      qrModal.classList.add("hidden");
+    });
+  }
+  if (qrModal) {
+    qrModal.addEventListener("click", e => {
+      if (e.target === qrModal) qrModal.classList.add("hidden");
+    });
+  }
+  if (copySiteUrlBtn) {
+    copySiteUrlBtn.addEventListener("click", async () => {
+      const siteUrl = "https://lionelnggrok-netizen.github.io/the-orchard-connection/";
+      try {
+        await navigator.clipboard.writeText(siteUrl);
+        copySiteUrlBtn.textContent = "Copied Link ✓";
+        setTimeout(() => {
+          copySiteUrlBtn.textContent = "🔗 Copy Site Link";
+        }, 2000);
+      } catch {
+        prompt("Copy site URL:", siteUrl);
+      }
+    });
+  }
 
   // Status banner dismiss
   document.getElementById("closeStatusBannerBtn").addEventListener("click", () => {
