@@ -316,8 +316,11 @@ function renderAddTeeTimeSlotsBuilder() {
   const container = document.getElementById("newTeeSlotsContainer");
   if (!container) return;
 
+  const includeCb = document.getElementById("includePosterSlot1Checkbox");
+  const includeInSlot1 = includeCb ? includeCb.checked : true;
+
   const playerOptions = [
-    `<option value="">— Pick registered player or type below —</option>`,
+    `<option value="">— Leave open or pick player —</option>`,
     ...boardState.players.map(
       p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.name)}</option>`
     )
@@ -325,15 +328,17 @@ function renderAddTeeTimeSlotsBuilder() {
 
   let html = "";
   for (let s = 1; s <= 4; s++) {
-    const isPoster = s === 1;
-    const defaultName = isPoster ? "Lionel Ng" : "";
-    const isReg = isRegisteredName(defaultName);
+    const isSlot1 = s === 1;
+    const defaultName = isSlot1 && includeInSlot1 ? "Lionel Ng" : "";
+    const isReg = Boolean(defaultName) && isRegisteredName(defaultName);
 
     html += `
       <div class="builder-slot-box" data-builder-slot="${s}">
         <div class="builder-slot-head">
-          <span>Slot ${s} ${isPoster ? "(Poster / Host *)" : "(Optional)"}</span>
-          <span>${isPoster ? "Required" : "Open if blank"}</span>
+          <span data-slot-title="${s}">Slot ${s} ${isSlot1 && includeInSlot1 ? "(Poster / Host)" : "(Optional)"}</span>
+          <button type="button" class="builder-slot-clear-btn" data-action="clear-builder-slot" data-slot="${s}" title="Leave Slot ${s} open for others">
+            ${isSlot1 ? "Leave Open" : "Clear"}
+          </button>
         </div>
         <select class="builder-player-select" data-slot="${s}" aria-label="Pick registered player for Slot ${s}">
           ${playerOptions}
@@ -343,15 +348,14 @@ function renderAddTeeTimeSlotsBuilder() {
           class="builder-name-input"
           data-slot="${s}"
           list="registeredPlayersDatalist"
-          placeholder="${isPoster ? "Your Name (e.g. Lionel Ng)" : "Friend's Name (or leave open)"}"
+          placeholder="${isSlot1 ? "Player Name (or leave open for others)" : "Friend's Name (or leave open)"}"
           value="${escapeHtml(defaultName)}"
-          ${isPoster ? "required" : ""}
         />
         <input
           type="email"
           class="builder-email-input ${isReg || !defaultName ? "hidden" : ""}"
           data-slot="${s}"
-          placeholder="Friend's Email (saved privately)"
+          placeholder="Player's Email (saved privately)"
         />
         <div class="email-on-file-pill ${isReg ? "" : "hidden"}" data-slot-pill="${s}">
           ✓ Registered player (email on file)
@@ -368,17 +372,94 @@ function renderAddTeeTimeSlotsBuilder() {
       sel.value = nameInput.value;
     }
     sel.addEventListener("change", () => {
-      if (sel.value) {
-        nameInput.value = sel.value;
+      nameInput.value = sel.value || "";
+      if (s === "1" && includeCb) {
+        includeCb.checked = Boolean(nameInput.value.trim());
       }
       syncBuilderSlotEmailVisibility(s);
+      syncOrganizerBarVisibility();
     });
   });
 
   container.querySelectorAll(".builder-name-input").forEach(inp => {
     const s = inp.getAttribute("data-slot");
-    inp.addEventListener("input", () => syncBuilderSlotEmailVisibility(s));
+    inp.addEventListener("input", () => {
+      const sel = container.querySelector(`.builder-player-select[data-slot="${s}"]`);
+      if (sel && !inp.value.trim()) sel.value = "";
+      if (s === "1" && includeCb) {
+        includeCb.checked = Boolean(inp.value.trim());
+      }
+      syncBuilderSlotEmailVisibility(s);
+      syncOrganizerBarVisibility();
+    });
   });
+
+  container.querySelectorAll("[data-action='clear-builder-slot']").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const s = btn.getAttribute("data-slot");
+      const nameInput = container.querySelector(`.builder-name-input[data-slot="${s}"]`);
+      const sel = container.querySelector(`.builder-player-select[data-slot="${s}"]`);
+      if (nameInput && s === "1" && nameInput.value.trim()) {
+        const orgNameEl = document.getElementById("posterOrganizerName");
+        if (orgNameEl && !orgNameEl.value.trim()) {
+          orgNameEl.value = nameInput.value.trim();
+        }
+      }
+      if (nameInput) nameInput.value = "";
+      if (sel) sel.value = "";
+      if (s === "1" && includeCb) {
+        includeCb.checked = false;
+      }
+      syncBuilderSlotEmailVisibility(s);
+      syncOrganizerBarVisibility();
+    });
+  });
+
+  syncOrganizerBarVisibility();
+}
+
+function syncOrganizerBarVisibility() {
+  const container = document.getElementById("newTeeSlotsContainer");
+  const slot1NameInp = container ? container.querySelector('.builder-name-input[data-slot="1"]') : null;
+  const slot1Title = container ? container.querySelector('[data-slot-title="1"]') : null;
+  const orgBar = document.getElementById("posterOrganizerBar");
+  const orgNameInp = document.getElementById("posterOrganizerName");
+  const orgEmailInp = document.getElementById("posterOrganizerEmail");
+  const orgPill = document.getElementById("posterOrganizerSavedPill");
+
+  const slot1Val = String(slot1NameInp ? slot1NameInp.value : "").trim();
+  if (slot1Title) {
+    slot1Title.textContent = slot1Val ? "Slot 1 (Poster / Host)" : "Slot 1 (Open for Others)";
+  }
+
+  if (!orgBar) return;
+  if (!slot1Val) {
+    orgBar.classList.remove("hidden");
+    const orgName = String(orgNameInp ? orgNameInp.value : "").trim();
+    if (!orgName) {
+      if (orgEmailInp) {
+        orgEmailInp.classList.add("hidden");
+        orgEmailInp.required = false;
+      }
+      if (orgPill) orgPill.classList.add("hidden");
+    } else if (isRegisteredName(orgName)) {
+      if (orgEmailInp) {
+        orgEmailInp.classList.add("hidden");
+        orgEmailInp.required = false;
+        orgEmailInp.value = "";
+      }
+      if (orgPill) orgPill.classList.remove("hidden");
+    } else {
+      if (orgEmailInp) {
+        orgEmailInp.classList.remove("hidden");
+        orgEmailInp.required = true;
+      }
+      if (orgPill) orgPill.classList.add("hidden");
+    }
+  } else {
+    orgBar.classList.add("hidden");
+    if (orgEmailInp) orgEmailInp.required = false;
+  }
 }
 
 function syncBuilderSlotEmailVisibility(slotNum) {
@@ -425,7 +506,7 @@ function updateNewTeeWeatherPreview() {
 
 function renderCardEditDrawerHtml(card) {
   const isEditOpen = openEditCardIds.has(card.id);
-  const slot1Name = (card.slots && card.slots[0] && card.slots[0].name) || "Slot 1 Poster";
+  const posterName = card.posterName || (card.slots && card.slots[0] && card.slots[0].name) || "Lionel Ng";
 
   const editSlotsRowsHtml = (card.slots || [])
     .map(s => {
@@ -434,7 +515,7 @@ function renderCardEditDrawerHtml(card) {
       const isKnownOrCurrent = Boolean(currentName) || isRegisteredName(currentName);
 
       const selectOpts = [
-        `<option value="">Pick registered...</option>`,
+        `<option value="">Leave open / Pick...</option>`,
         ...boardState.players.map(
           p =>
             `<option value="${escapeHtml(p.name)}" ${
@@ -445,7 +526,7 @@ function renderCardEditDrawerHtml(card) {
 
       return `
         <div class="edit-slot-item" data-edit-slot-row="${sNum}">
-          <span class="edit-slot-label">Slot ${sNum}${sNum === 1 ? " *" : ""}</span>
+          <span class="edit-slot-label">Slot ${sNum}</span>
           <select class="edit-slot-select" data-slot="${sNum}" aria-label="Select registered player for Slot ${sNum}">
             ${selectOpts}
           </select>
@@ -455,9 +536,8 @@ function renderCardEditDrawerHtml(card) {
             data-slot="${sNum}"
             data-original-name="${escapeHtml(currentName)}"
             list="registeredPlayersDatalist"
-            placeholder="${sNum === 1 ? "Poster Name (Required)" : "Open slot (or type name)"}"
+            placeholder="Open slot (or type name)"
             value="${escapeHtml(currentName)}"
-            ${sNum === 1 ? "required" : ""}
           />
           <input
             type="email"
@@ -468,11 +548,7 @@ function renderCardEditDrawerHtml(card) {
           <span class="slot-email-saved-tag ${isKnownOrCurrent && currentName ? "" : "hidden"}" data-edit-saved-tag="${sNum}">
             ✓ Email on file
           </span>
-          ${
-            sNum > 1
-              ? `<button type="button" class="edit-slot-clear-btn" data-action="clear-edit-slot" data-slot="${sNum}" title="Clear Slot ${sNum}">Clear</button>`
-              : ""
-          }
+          <button type="button" class="edit-slot-clear-btn" data-action="clear-edit-slot" data-slot="${sNum}" title="Clear Slot ${sNum} to open it for others">Clear</button>
         </div>
       `;
     })
@@ -507,11 +583,11 @@ function renderCardEditDrawerHtml(card) {
 
         <div class="edit-verify-footer" style="margin-top:10px;">
           <div class="edit-verify-group">
-            <label class="edit-verify-label">🔒 Verify Slot 1 (${escapeHtml(slot1Name)}) Email:</label>
+            <label class="edit-verify-label">🔒 Verify Poster (${escapeHtml(posterName)}) Email:</label>
             <input
               type="email"
               class="edit-poster-email-input"
-              placeholder="Enter ${escapeHtml(slot1Name)}'s email to save"
+              placeholder="Enter ${escapeHtml(posterName)}'s email to save"
               required
             />
           </div>
@@ -575,11 +651,13 @@ function renderTeeTimeCard(card, isPast = false) {
   const slotsHtml = card.slots
     .map(slotObj => {
       if (slotObj.filled) {
-        const roleLabel = slotObj.slot === 1 ? "Poster / Host" : "Confirmed";
-        const cancelHint =
-          slotObj.slot === 1
-            ? "Cancel entire tee time card (Slot 1 host)"
-            : `Remove ${slotObj.name} and reopen Slot ${slotObj.slot}`;
+        const isPosterSlot = Boolean(
+          slotObj.isPoster ||
+          (card.posterName && slotObj.name && slotObj.name.toLowerCase() === card.posterName.toLowerCase()) ||
+          (!card.posterName && slotObj.slot === 1)
+        );
+        const roleLabel = isPosterSlot ? "Poster / Host" : "Confirmed";
+        const cancelHint = `Remove ${slotObj.name} and reopen Slot ${slotObj.slot} for others`;
 
         return `
           <div class="slot-row slot-filled">
@@ -1062,10 +1140,7 @@ function bindCardInteractiveEvents() {
       const cardId = btn.getAttribute("data-card-id");
       const slot = Number(btn.getAttribute("data-slot"));
       const playerName = btn.getAttribute("data-player-name");
-      const promptMsg =
-        slot === 1
-          ? `Cancel Slot 1 (${playerName})? Since Slot 1 is the poster, this will cancel the ENTIRE tee-time card and notify the group.`
-          : `Remove ${playerName} from Slot ${slot} and reopen this spot?`;
+      const promptMsg = `Remove ${playerName} from Slot ${slot} and reopen this spot for others? (To cancel the entire tee time, use ✎ Edit → 🗑 Cancel Tee Time.)`;
       if (!confirm(promptMsg)) return;
 
       try {
@@ -1224,6 +1299,38 @@ function initApp() {
 
   document.getElementById("newTeeDate").addEventListener("change", updateNewTeeWeatherPreview);
   document.getElementById("newTeeTime").addEventListener("change", updateNewTeeWeatherPreview);
+
+  const includePosterCb = document.getElementById("includePosterSlot1Checkbox");
+  const posterOrgNameInp = document.getElementById("posterOrganizerName");
+  if (includePosterCb) {
+    includePosterCb.addEventListener("change", () => {
+      const container = document.getElementById("newTeeSlotsContainer");
+      const slot1NameInp = container ? container.querySelector('.builder-name-input[data-slot="1"]') : null;
+      const slot1Sel = container ? container.querySelector('.builder-player-select[data-slot="1"]') : null;
+      if (includePosterCb.checked) {
+        const restoreName = String(posterOrgNameInp && posterOrgNameInp.value ? posterOrgNameInp.value : "Lionel Ng").trim() || "Lionel Ng";
+        if (slot1NameInp && !slot1NameInp.value.trim()) {
+          slot1NameInp.value = restoreName;
+        }
+        if (slot1Sel && slot1NameInp) {
+          slot1Sel.value = slot1NameInp.value;
+        }
+      } else {
+        if (slot1NameInp && slot1NameInp.value.trim() && posterOrgNameInp) {
+          posterOrgNameInp.value = slot1NameInp.value.trim();
+        }
+        if (slot1NameInp) slot1NameInp.value = "";
+        if (slot1Sel) slot1Sel.value = "";
+      }
+      syncBuilderSlotEmailVisibility("1");
+      syncOrganizerBarVisibility();
+    });
+  }
+  if (posterOrgNameInp) {
+    posterOrgNameInp.addEventListener("input", () => {
+      syncOrganizerBarVisibility();
+    });
+  }
 
   // Header panel toggles
   const addPanel = document.getElementById("addTeeTimePanel");
@@ -1387,13 +1494,23 @@ function initApp() {
       }
     }
 
+    const slot1Entry = slots.find(s => s.slot === 1);
+    const orgNameEl = document.getElementById("posterOrganizerName");
+    const orgEmailEl = document.getElementById("posterOrganizerEmail");
+    const posterName = slot1Entry
+      ? slot1Entry.name
+      : String(orgNameEl && orgNameEl.value ? orgNameEl.value : "Lionel Ng").trim() || "Lionel Ng";
+    const posterEmail = slot1Entry
+      ? slot1Entry.email
+      : String(orgEmailEl && orgEmailEl.value ? orgEmailEl.value : "").trim();
+
     const btn = document.getElementById("saveNewTeeTimeBtn");
     btn.disabled = true;
     try {
       const resp = await fetch(`${API_BASE}/api/teetimes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, time, slots })
+        body: JSON.stringify({ date, time, slots, posterName, posterEmail })
       });
       const data = await resp.json();
       btn.disabled = false;

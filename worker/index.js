@@ -247,6 +247,13 @@ function formatFriendlyDateTime(dateStr, timeStr) {
   }
 }
 
+function getCardPoster(card) {
+  const slot1 = (card.slots || []).find(s => s.slot === 1) || (card.slots || [])[0] || {};
+  const name = String(card.posterName || slot1.name || "Lionel Ng").trim();
+  const email = String(card.posterEmail || slot1.email || "lionel.keat@gmail.com").trim().toLowerCase();
+  return { name, email };
+}
+
 function buildCalendarLinks(card) {
   const [y, m, d] = card.date.split("-").map(Number);
   const [hh, mm] = card.time.split(":").map(Number);
@@ -417,12 +424,14 @@ function sanitizeBoard(state) {
     })
     .map(card => {
       const cal = buildCalendarLinks(card);
+      const poster = getCardPoster(card);
       return {
         id: card.id,
         date: card.date,
         time: card.time,
         course: card.course || "Orchard Hills Golf Course",
         notes: card.notes || "",
+        posterName: poster.name,
         createdAt: card.createdAt,
         updatedAt: card.updatedAt || null,
         googleCalUrl: cal.googleCalUrl,
@@ -431,6 +440,7 @@ function sanitizeBoard(state) {
           slot: s.slot,
           name: s.name || null,
           filled: Boolean(s.name),
+          isPoster: Boolean(s.name && poster.name && s.name.toLowerCase() === poster.name.toLowerCase()),
           claimedAt: s.claimedAt || null
         })),
         chat: (card.chat || []).map(m => ({
@@ -584,16 +594,36 @@ export default {
           };
         }
 
-        if (!slots[0].name) {
-          return jsonResponse({ error: "Slot 1 (poster/booker) must have a player name." }, 400);
+        let posterPlayer = null;
+        const rawPosterName = String(body.posterName || "").trim();
+        const rawPosterEmail = String(body.posterEmail || "").trim().toLowerCase();
+
+        if (rawPosterName) {
+          const pReg = findOrRegisterPlayer(state, rawPosterName, rawPosterEmail);
+          if (pReg.error) return jsonResponse({ error: pReg.error }, 400);
+          posterPlayer = pReg.player;
+        } else if (slots[0].name) {
+          posterPlayer = { name: slots[0].name, email: slots[0].email };
+        } else {
+          const firstFilled = slots.find(s => s.name);
+          if (firstFilled) {
+            posterPlayer = { name: firstFilled.name, email: firstFilled.email };
+          } else {
+            const fallbackReg = findOrRegisterPlayer(state, "Lionel Ng", "lionel.keat@gmail.com");
+            posterPlayer = fallbackReg.player;
+          }
         }
 
+        const posterCancelToken = randomId("tok_card");
         const newCard = {
           id: randomId("tt"),
           date,
           time,
           course: "Orchard Hills Golf Course",
           notes: String(body.notes || "").trim(),
+          posterName: posterPlayer.name,
+          posterEmail: posterPlayer.email,
+          posterCancelToken,
           createdAt: new Date().toISOString(),
           canceled: false,
           slots,
@@ -611,9 +641,7 @@ export default {
           const cancelUrl = `${SITE_URL}?cancel=${encodeURIComponent(s.cancelToken)}`;
           cancelLinksForResponse.push({ slot: s.slot, name: s.name, cancelUrl });
           const roleNote =
-            s.slot === 1
-              ? "As Slot 1 (the tee-time poster), clicking your cancel link will cancel the entire tee-time card and notify everyone."
-              : "If your plans change, click your one-click cancel link below to remove your name and reopen the spot.";
+            "If your plans change, click your one-click cancel link below to remove your name and reopen your spot.";
 
           await dispatchEmailJob(env, state, {
             type: "slot_confirmation",
@@ -638,16 +666,31 @@ export default {
           });
         }
 
+        const posterInAnySlot = slots.some(
+          s => s.name && posterPlayer.name && s.name.toLowerCase() === posterPlayer.name.toLowerCase()
+        );
+        const posterCardCancelUrl = `${SITE_URL}?cancel=${encodeURIComponent(posterCancelToken)}`;
+        if (!posterInAnySlot && posterPlayer && posterPlayer.email) {
+          cancelLinksForResponse.push({
+            slot: 0,
+            name: `${posterPlayer.name} (Organizer — Cancel Entire Tee Time)`,
+            cancelUrl: posterCardCancelUrl
+          });
+        }
+
         const allNotify = [
           ...state.players.map(p => ({ name: p.name, email: p.email })),
-          ...slots.filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
+          ...slots.filter(s => s.name).map(s => ({ name: s.name, email: s.email })),
+          ...(posterPlayer && posterPlayer.email ? [{ name: posterPlayer.name, email: posterPlayer.email }] : [])
         ];
         await dispatchEmailJob(env, state, {
           type: "teetime_posted",
           cardId: newCard.id,
           subject: `⛳ New Tee Time Posted: Orchard Hills — ${friendlyWhen} (${openCount} spot${openCount === 1 ? "" : "s"} open)`,
           recipients: allNotify,
-          textBody: `${slots[0].name} posted a tee time at Orchard Hills Golf Course for ${friendlyWhen}.\nOpen spots: ${openCount} of 4.\n\nClaim a spot on The Orchard Connection:\n${SITE_URL}#${newCard.id}`
+          googleCalUrl: cal.googleCalUrl,
+          cancelUrl: !posterInAnySlot ? posterCardCancelUrl : null,
+          textBody: `${posterPlayer.name} posted a tee time at Orchard Hills Golf Course for ${friendlyWhen}${!posterInAnySlot ? " (Slot 1 left open for others!)" : ""}.\nOpen spots: ${openCount} of 4.\n\nClaim a spot on The Orchard Connection:\n${SITE_URL}#${newCard.id}`
         });
 
         await saveState(env, state);
@@ -685,23 +728,31 @@ export default {
         }
 
         const slot1 = (card.slots || []).find(s => s.slot === 1) || card.slots[0] || {};
-        const storedPosterEmail = String(slot1.email || "").trim().toLowerCase();
+        const poster = getCardPoster(card);
+        const storedPosterEmail = String(poster.email || "").trim().toLowerCase();
+        const slot1Email = String(slot1.email || "").trim().toLowerCase();
+        const posterNameLower = String(poster.name || "").trim().toLowerCase();
         const slot1NameLower = String(slot1.name || "").trim().toLowerCase();
-        const isLionelSlot1 =
+        const isLionelCard =
           storedPosterEmail === "lionel.keat@gmail.com" ||
           storedPosterEmail === "lionelng.grok@gmail.com" ||
+          slot1Email === "lionel.keat@gmail.com" ||
+          slot1Email === "lionelng.grok@gmail.com" ||
+          posterNameLower === "lionel ng" ||
+          posterNameLower === "lionel" ||
           slot1NameLower === "lionel ng" ||
           slot1NameLower === "lionel";
 
         const posterMatches =
           (storedPosterEmail && inputPosterEmail === storedPosterEmail) ||
-          (isLionelSlot1 &&
+          (slot1Email && inputPosterEmail === slot1Email) ||
+          (isLionelCard &&
             (inputPosterEmail === "lionel.keat@gmail.com" ||
               inputPosterEmail === "lionelng.grok@gmail.com"));
 
         if (!posterMatches) {
           return jsonResponse(
-            { error: "Poster email does not match Slot 1's email for this tee time." },
+            { error: `Poster email does not match ${poster.name || "the poster"}'s email for this tee time.` },
             403
           );
         }
@@ -725,7 +776,7 @@ export default {
             cardId: card.id,
             subject: `⚠️ Tee Time Canceled: Orchard Hills — ${oldFriendlyWhen}`,
             recipients: allNotify,
-            textBody: `${slot1.name || "The poster"} canceled the Orchard Hills tee time for ${oldFriendlyWhen}. The card has been removed from the board.\n\nBoard: ${SITE_URL}`
+            textBody: `${poster.name || slot1.name || "The poster"} canceled the Orchard Hills tee time for ${oldFriendlyWhen}. The card has been removed from the board.\n\nBoard: ${SITE_URL}`
           });
 
           await saveState(env, state);
@@ -815,12 +866,9 @@ export default {
           }
         }
 
-        if (!newSlots[0].name) {
-          return jsonResponse(
-            { error: "Slot 1 (poster/booker) must have a player name." },
-            400
-          );
-        }
+        // Preserve card poster identity even if Slot 1 is cleared/opened up
+        if (!card.posterName) card.posterName = poster.name;
+        if (!card.posterEmail) card.posterEmail = poster.email;
 
         card.date = newDate;
         card.time = newTime;
@@ -901,7 +949,7 @@ export default {
           recipients: notifyPool,
           icsContent: dateTimeChanged ? cal.icsContent : null,
           googleCalUrl: cal.googleCalUrl,
-          textBody: `${newSlots[0].name} updated the Orchard Hills tee time (${newFriendlyWhen}).\n${summaryLine}\nOpen spots: ${openCount} of 4.\n\nUpdated Calendar Invite: ${cal.googleCalUrl}\nView Board: ${SITE_URL}#${card.id}`
+          textBody: `${poster.name || newSlots[0].name || "The organizer"} updated the Orchard Hills tee time (${newFriendlyWhen}).\n${summaryLine}\nOpen spots: ${openCount} of 4.\n\nUpdated Calendar Invite: ${cal.googleCalUrl}\nView Board: ${SITE_URL}#${card.id}`
         });
 
         await saveState(env, state);
@@ -1016,9 +1064,15 @@ export default {
         const state = await loadState(env);
         let foundCard = null;
         let foundSlot = null;
+        let isEntireCardCancel = false;
 
         for (const card of state.teeTimes) {
           if (card.canceled) continue;
+          if (token && card.posterCancelToken && card.posterCancelToken === token) {
+            foundCard = card;
+            isEntireCardCancel = true;
+            break;
+          }
           for (const s of card.slots) {
             if (token && s.cancelToken === token) {
               foundCard = card;
@@ -1034,11 +1088,16 @@ export default {
           if (foundCard) break;
         }
 
-        if (!foundCard || !foundSlot) {
+        if (!foundCard || (!foundSlot && !isEntireCardCancel)) {
           return jsonResponse({ error: "Cancel link is invalid or this spot was already canceled." }, 404);
         }
 
-        const canceledPlayerName = foundSlot.name;
+        const poster = getCardPoster(foundCard);
+        // Ensure card retains poster metadata even if Slot 1 is dropped
+        if (!foundCard.posterName) foundCard.posterName = poster.name;
+        if (!foundCard.posterEmail) foundCard.posterEmail = poster.email;
+
+        const canceledPlayerName = foundSlot ? foundSlot.name : poster.name;
         const friendlyWhen = formatFriendlyDateTime(foundCard.date, foundCard.time);
         const allNotify = [
           ...state.players.map(p => ({ name: p.name, email: p.email })),
@@ -1047,7 +1106,7 @@ export default {
 
         let cancelResult = {};
 
-        if (foundSlot.slot === 1) {
+        if (isEntireCardCancel) {
           foundCard.canceled = true;
           foundCard.canceledAt = new Date().toISOString();
           cancelResult = {
@@ -1055,7 +1114,7 @@ export default {
             cardId: foundCard.id,
             playerName: canceledPlayerName,
             when: friendlyWhen,
-            message: `${canceledPlayerName} (Slot 1 host) canceled the entire tee time for ${friendlyWhen}. All players have been notified.`
+            message: `${canceledPlayerName} canceled the entire tee time for ${friendlyWhen}. All players have been notified.`
           };
 
           await dispatchEmailJob(env, state, {
@@ -1063,7 +1122,7 @@ export default {
             cardId: foundCard.id,
             subject: `⚠️ Tee Time Canceled: Orchard Hills — ${friendlyWhen}`,
             recipients: allNotify,
-            textBody: `${canceledPlayerName} (Slot 1 booker) canceled the Orchard Hills tee time for ${friendlyWhen}. The entire tee time card has been removed from the board.\n\nBoard: ${SITE_URL}`
+            textBody: `${canceledPlayerName} canceled the Orchard Hills tee time for ${friendlyWhen}. The entire tee time card has been removed from the board.\n\nBoard: ${SITE_URL}`
           });
         } else {
           const reopenedSlotNum = foundSlot.slot;
@@ -1079,7 +1138,7 @@ export default {
             slot: reopenedSlotNum,
             playerName: canceledPlayerName,
             when: friendlyWhen,
-            message: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} (${friendlyWhen}). The spot is now open again!`
+            message: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} (${friendlyWhen}). Slot ${reopenedSlotNum} is now open for others!`
           };
 
           await dispatchEmailJob(env, state, {
@@ -1087,7 +1146,7 @@ export default {
             cardId: foundCard.id,
             subject: `🟢 Spot Opened Up! Orchard Hills — ${friendlyWhen} (${openCount} open)`,
             recipients: allNotify,
-            textBody: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} for Orchard Hills on ${friendlyWhen}. That spot is now open!\n\nGrab the spot here:\n${SITE_URL}#${foundCard.id}`
+            textBody: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} for Orchard Hills on ${friendlyWhen}. Slot ${reopenedSlotNum} is now open!\n\nGrab the spot here:\n${SITE_URL}#${foundCard.id}`
           });
         }
 

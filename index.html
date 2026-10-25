@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="styles.css?v=20261024h" />
+  <link rel="stylesheet" href="styles.css?v=20261025a" />
 </head>
 <body>
   <!-- Top Ambient Banner -->
@@ -68,7 +68,7 @@
       <div class="panel-header">
         <div>
           <h2 id="addTeeTimeHeading" class="panel-title">Post a New Tee Time</h2>
-          <p class="panel-subtitle">Fill in Date, Tee Time, and Slot 1 (poster), plus any already-confirmed friends, then click the green checkmark circle.</p>
+          <p class="panel-subtitle">Pick Date &amp; Tee Time and any confirmed players—or uncheck &ldquo;Put me in Slot 1&rdquo; to leave Slot 1 open for others.</p>
         </div>
         <button id="closeAddTeeTimeBtn" class="icon-close-btn" type="button" aria-label="Close form">✕</button>
       </div>
@@ -88,7 +88,36 @@
           </div>
         </div>
 
-        <div class="slots-builder-label">4-Player Card Slots (Strictly 4 Slots · Emails Stay Private)</div>
+        <div class="slots-builder-top-bar">
+          <div class="slots-builder-label" style="margin-bottom:0;">4-Player Card Slots (Strictly 4 Slots · Emails Stay Private)</div>
+          <label class="poster-slot1-toggle" for="includePosterSlot1Checkbox">
+            <input type="checkbox" id="includePosterSlot1Checkbox" checked />
+            <span>Put me in Slot 1 <em>(uncheck to leave Slot 1 open for others)</em></span>
+          </label>
+        </div>
+
+        <div id="posterOrganizerBar" class="poster-organizer-bar hidden">
+          <div class="poster-organizer-label">
+            <span>📋 Posted By (Organizer — not taking a spot):</span>
+          </div>
+          <div class="poster-organizer-inputs">
+            <input
+              type="text"
+              id="posterOrganizerName"
+              list="registeredPlayersDatalist"
+              placeholder="Your Name (e.g. Lionel Ng)"
+              value="Lionel Ng"
+            />
+            <input
+              type="email"
+              id="posterOrganizerEmail"
+              class="hidden"
+              placeholder="Your Email (for edit/cancel access)"
+            />
+            <span id="posterOrganizerSavedPill" class="email-on-file-pill">✓ Registered player (email on file)</span>
+          </div>
+        </div>
+
         <div class="slots-builder-grid" id="newTeeSlotsContainer">
           <!-- Populated dynamically by app.js for Slots 1..4 -->
         </div>
@@ -237,6 +266,6 @@
   </footer>
 
   <datalist id="registeredPlayersDatalist"></datalist>
-  <script src="app.js?v=20261024h"></script>
+  <script src="app.js?v=20261025a"></script>
 </body>
 </html>
