@@ -87,6 +87,54 @@ async function flushPendingOutboxFromBrowser() {
 }
 
 
+// ---- Spot count (1-4) helpers ----
+// A card's optional `slotCount` (1-4); missing/invalid means 4 so legacy cards are unchanged.
+const MAX_SLOTS = 4;
+
+function getSlotCount(card) {
+  const n = Number(card && card.slotCount);
+  if (Number.isInteger(n) && n >= 1 && n <= MAX_SLOTS) return n;
+  return MAX_SLOTS;
+}
+
+function getActiveSlots(card) {
+  const count = getSlotCount(card);
+  return (card && Array.isArray(card.slots) ? card.slots : []).filter(
+    s => Number(s.slot) >= 1 && Number(s.slot) <= count
+  );
+}
+
+function getNewTeeSlotCount() {
+  const checked = document.querySelector('input[name="newTeeSlotCount"]:checked');
+  const n = Number(checked ? checked.value : MAX_SLOTS);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_SLOTS ? n : MAX_SLOTS;
+}
+
+// Show only the chosen number of slot boxes in the Add Tee Time form.
+// Hidden boxes are cleared so they are never submitted or block validation.
+function applyNewTeeSlotCount() {
+  const container = document.getElementById("newTeeSlotsContainer");
+  if (!container) return;
+  const count = getNewTeeSlotCount();
+  container.querySelectorAll(".builder-slot-box").forEach(box => {
+    const s = Number(box.getAttribute("data-builder-slot"));
+    const hide = s > count;
+    box.classList.toggle("hidden", hide);
+    if (hide) {
+      const nameInput = box.querySelector(".builder-name-input");
+      const emailInput = box.querySelector(".builder-email-input");
+      const sel = box.querySelector(".builder-player-select");
+      if (nameInput) nameInput.value = "";
+      if (emailInput) {
+        emailInput.value = "";
+        emailInput.required = false;
+      }
+      if (sel) sel.value = "";
+      syncBuilderSlotEmailVisibility(String(s));
+    }
+  });
+}
+
 function escapeHtml(str) {
   return String(str || "")
     .replace(/&/g, "&amp;")
@@ -415,6 +463,7 @@ function renderAddTeeTimeSlotsBuilder() {
     });
   });
 
+  applyNewTeeSlotCount();
   syncOrganizerBarVisibility();
 }
 
@@ -507,8 +556,31 @@ function updateNewTeeWeatherPreview() {
 function renderCardEditDrawerHtml(card) {
   const isEditOpen = openEditCardIds.has(card.id);
   const posterName = card.posterName || (card.slots && card.slots[0] && card.slots[0].name) || "Lionel Ng";
+  const cardSlotCount = getSlotCount(card);
 
-  const editSlotsRowsHtml = (card.slots || [])
+  // Always render rows 1..4 so the spot count can be raised; rows above the count start hidden.
+  const editRowSlots = [];
+  for (let n = 1; n <= MAX_SLOTS; n++) {
+    const existing = (card.slots || []).find(x => Number(x.slot) === n && n <= cardSlotCount);
+    editRowSlots.push(existing || { slot: n, name: null });
+  }
+
+  const spotPickerHtml = `
+    <div class="spot-count-picker spot-count-picker-edit" role="radiogroup" aria-label="Spots on this tee time">
+      <span class="spot-count-label">Spots on this tee time</span>
+      <div class="spot-count-options">
+        ${[1, 2, 3, 4]
+          .map(
+            n => `<label><input type="radio" class="edit-slot-count-radio" name="editSlotCount-${escapeHtml(card.id)}" value="${n}" ${
+              n === cardSlotCount ? "checked" : ""
+            } /><span>${n}</span></label>`
+          )
+          .join("")}
+      </div>
+    </div>
+  `;
+
+  const editSlotsRowsHtml = editRowSlots
     .map(s => {
       const sNum = s.slot;
       const currentName = s.name || "";
@@ -525,7 +597,7 @@ function renderCardEditDrawerHtml(card) {
       ].join("");
 
       return `
-        <div class="edit-slot-item" data-edit-slot-row="${sNum}">
+        <div class="edit-slot-item ${sNum > cardSlotCount ? "hidden" : ""}" data-edit-slot-row="${sNum}">
           <span class="edit-slot-label">Slot ${sNum}</span>
           <select class="edit-slot-select" data-slot="${sNum}" aria-label="Select registered player for Slot ${sNum}">
             ${selectOpts}
@@ -549,6 +621,7 @@ function renderCardEditDrawerHtml(card) {
             ✓ Email on file
           </span>
           <button type="button" class="edit-slot-clear-btn" data-action="clear-edit-slot" data-slot="${sNum}" title="Clear Slot ${sNum} to open it for others">Clear</button>
+          <span class="edit-slot-over-note hidden" data-edit-over-note="${sNum}">Over the spot count — clear this player to reduce spots</span>
         </div>
       `;
     })
@@ -574,6 +647,8 @@ function renderCardEditDrawerHtml(card) {
             <input type="time" class="edit-time-input" value="${escapeHtml(card.time)}" required />
           </div>
         </div>
+
+        ${spotPickerHtml}
 
         <div class="edit-slots-stack" style="margin-top:10px;">
           ${editSlotsRowsHtml}
@@ -617,7 +692,9 @@ function renderCardEditDrawerHtml(card) {
 
 function renderTeeTimeCard(card, isPast = false) {
   const wf = getCardWeatherAndFrost(card.date, card.time);
-  const openSlotsCount = card.slots.filter(s => !s.filled).length;
+  const activeSlots = getActiveSlots(card);
+  const cardSlotCount = getSlotCount(card);
+  const openSlotsCount = activeSlots.filter(s => !s.filled).length;
   const frostClass = !isPast && wf.isFrostRisk ? "card-frost-risk" : "";
   const isEditOpen = openEditCardIds.has(card.id);
 
@@ -648,7 +725,7 @@ function renderTeeTimeCard(card, isPast = false) {
     )
   ].join("");
 
-  const slotsHtml = card.slots
+  const slotsHtml = activeSlots
     .map(slotObj => {
       if (slotObj.filled) {
         const isPosterSlot = Boolean(
@@ -750,7 +827,7 @@ function renderTeeTimeCard(card, isPast = false) {
           <div class="card-date-row">
             <span class="card-date-text">${escapeHtml(formatCardDate(card.date))}</span>
             <span class="spots-pill ${openSlotsCount === 0 ? "spots-full" : ""}">
-              ${openSlotsCount === 0 ? "Full (4/4)" : `${openSlotsCount} spot${openSlotsCount === 1 ? "" : "s"} open`}
+              ${openSlotsCount === 0 ? `Full (${cardSlotCount}/${cardSlotCount})` : `${openSlotsCount} spot${openSlotsCount === 1 ? "" : "s"} open`}
             </span>
             <button
               type="button"
@@ -777,7 +854,7 @@ function renderTeeTimeCard(card, isPast = false) {
       <!-- Inline Edit Drawer (Verified by Slot 1 Poster Email) -->
       ${renderCardEditDrawerHtml(card)}
 
-      <!-- 4 Player Slots (Strictly 4, No Waitlist) -->
+      <!-- Player Slots (card's slotCount, 1-4; legacy cards = 4; no waitlist) -->
       <div class="slots-list">
         ${slotsHtml}
       </div>
@@ -993,6 +1070,40 @@ function bindCardInteractiveEvents() {
       }
     }
 
+    function getEditSlotCount() {
+      const checked = form.querySelector(".edit-slot-count-radio:checked");
+      const n = Number(checked ? checked.value : MAX_SLOTS);
+      return Number.isInteger(n) && n >= 1 && n <= MAX_SLOTS ? n : MAX_SLOTS;
+    }
+
+    // Rows within the count are shown; empty rows above it are hidden; filled rows above it
+    // stay visible (flagged) so the poster can clear those players before reducing.
+    function applyEditSlotCount() {
+      const count = getEditSlotCount();
+      form.querySelectorAll(".edit-slot-item").forEach(row => {
+        const sNum = Number(row.getAttribute("data-edit-slot-row"));
+        const nameInp = row.querySelector(".edit-slot-name-input");
+        const emailInp = row.querySelector(".edit-slot-email-input");
+        const note = row.querySelector(".edit-slot-over-note");
+        const hasName = Boolean(String(nameInp ? nameInp.value : "").trim());
+        const over = sNum > count;
+        row.classList.toggle("hidden", over && !hasName);
+        row.classList.toggle("edit-slot-over", over && hasName);
+        if (note) note.classList.toggle("hidden", !(over && hasName));
+        if (over && !hasName && emailInp) {
+          emailInp.required = false;
+          emailInp.value = "";
+        }
+      });
+    }
+
+    form.querySelectorAll(".edit-slot-count-radio").forEach(radio => {
+      radio.addEventListener("change", () => {
+        showEditError("");
+        applyEditSlotCount();
+      });
+    });
+
     form.querySelectorAll(".edit-slot-item").forEach(row => {
       const selectEl = row.querySelector(".edit-slot-select");
       const nameInp = row.querySelector(".edit-slot-name-input");
@@ -1037,9 +1148,12 @@ function bindCardInteractiveEvents() {
           selectEl.value = "";
           nameInp.value = "";
           syncRowEmailField();
+          applyEditSlotCount();
         });
       }
     });
+
+    applyEditSlotCount();
 
     // Cancel Entire Tee Time button inside Edit Drawer (requires Slot 1 poster's email)
     const cancelCardBtn = form.querySelector("[data-action='cancel-entire-card-edit']");
@@ -1096,12 +1210,19 @@ function bindCardInteractiveEvents() {
         return;
       }
 
+      const slotCount = getEditSlotCount();
       const slots = [];
-      for (let s = 1; s <= 4; s++) {
+      for (let s = 1; s <= MAX_SLOTS; s++) {
         const nameInp = form.querySelector(`.edit-slot-name-input[data-slot="${s}"]`);
         const emailInp = form.querySelector(`.edit-slot-email-input[data-slot="${s}"]`);
         const sName = String(nameInp ? nameInp.value : "").trim();
         const sEmail = String(emailInp ? emailInp.value : "").trim();
+        if (s > slotCount && sName) {
+          showEditError(
+            `Can't reduce to ${slotCount} spot${slotCount === 1 ? "" : "s"}: Slot ${s} still has ${sName}. Clear that player first (or keep at least ${s} spots).`
+          );
+          return;
+        }
         slots.push({ slot: s, name: sName, email: sEmail });
       }
 
@@ -1111,7 +1232,7 @@ function bindCardInteractiveEvents() {
         const resp = await fetch(`${API_BASE}/api/teetime/edit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ cardId, posterEmail, date, time, slots })
+          body: JSON.stringify({ cardId, posterEmail, date, time, slots, slotCount })
         });
         const data = await resp.json();
         submitBtn.disabled = false;
@@ -1189,7 +1310,7 @@ function bindCardInteractiveEvents() {
       const cardId = btn.getAttribute("data-card-id");
       const card = (boardState.teeTimes || []).find(c => c.id === cardId);
       if (!card) return;
-      const openCount = card.slots.filter(s => !s.filled).length;
+      const openCount = getActiveSlots(card).filter(s => !s.filled).length;
       const shareUrl = `${window.location.origin}${window.location.pathname}#${card.id}`;
       const text = `⛳ Orchard Hills – ${formatCardDate(card.date)} at ${formatCardTime(card.time)} (${openCount} spot${openCount === 1 ? "" : "s"} open): ${shareUrl}`;
       try {
@@ -1331,6 +1452,12 @@ function initApp() {
       syncOrganizerBarVisibility();
     });
   }
+  document.querySelectorAll('input[name="newTeeSlotCount"]').forEach(radio => {
+    radio.addEventListener("change", () => {
+      applyNewTeeSlotCount();
+      syncOrganizerBarVisibility();
+    });
+  });
 
   // Header panel toggles
   const addPanel = document.getElementById("addTeeTimePanel");
@@ -1483,8 +1610,9 @@ function initApp() {
     const date = document.getElementById("newTeeDate").value;
     const time = document.getElementById("newTeeTime").value;
     const slots = [];
+    const slotCount = getNewTeeSlotCount();
 
-    for (let s = 1; s <= 4; s++) {
+    for (let s = 1; s <= slotCount; s++) {
       const nameInp = document.querySelector(`.builder-name-input[data-slot="${s}"]`);
       const emailInp = document.querySelector(`.builder-email-input[data-slot="${s}"]`);
       const sName = String(nameInp ? nameInp.value : "").trim();
@@ -1510,7 +1638,7 @@ function initApp() {
       const resp = await fetch(`${API_BASE}/api/teetimes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date, time, slots, posterName, posterEmail })
+        body: JSON.stringify({ date, time, slots, posterName, posterEmail, slotCount })
       });
       const data = await resp.json();
       btn.disabled = false;
@@ -1530,7 +1658,7 @@ function initApp() {
         openConfirmationModal({
           title: `Tee Time Posted — ${formatCardDate(date)} at ${formatCardTime(time)}`,
           subtitle:
-            "Your 4-player card is live on The Orchard Connection! Calendar invite & one-click cancel link are ready below.",
+            `Your ${slotCount}-spot card is live on The Orchard Connection! Calendar invite & one-click cancel link are ready below.`,
           googleCalUrl: data.calendar.googleCalUrl,
           icsUrl: data.calendar.icsUrl,
           cancelUrl: firstCancel

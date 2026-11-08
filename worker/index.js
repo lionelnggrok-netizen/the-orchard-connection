@@ -34,6 +34,36 @@ function randomId(prefix) {
   return `${prefix}_${hex}`;
 }
 
+// ---- Spot count (1-4) helpers ----
+// Cards may carry an optional integer `slotCount` (1-4). A missing/invalid value means 4,
+// so every legacy card keeps its original four-slot behavior. Always read it via getSlotCount().
+const MAX_SLOTS = 4;
+
+function getSlotCount(card) {
+  const n = Number(card && card.slotCount);
+  if (Number.isInteger(n) && n >= 1 && n <= MAX_SLOTS) return n;
+  return MAX_SLOTS;
+}
+
+// Slots that exist on the card (slot numbers 1..slotCount).
+function getActiveSlots(card) {
+  const count = getSlotCount(card);
+  return (card.slots || []).filter(s => Number(s.slot) >= 1 && Number(s.slot) <= count);
+}
+
+// Parse a requested slotCount from a request body. Returns { value } or { error }.
+// Missing -> fallback. Numeric values are rounded and clamped to 1..4.
+function parseRequestedSlotCount(raw, fallback) {
+  if (raw === undefined || raw === null || raw === "") return { value: fallback };
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return { error: "Spots on this tee time must be a number from 1 to 4." };
+  return { value: Math.min(MAX_SLOTS, Math.max(1, Math.round(n))) };
+}
+
+function emptySlot(num) {
+  return { slot: num, name: null, email: null, cancelToken: null, claimedAt: null };
+}
+
 function defaultState() {
   return {
     players: [
@@ -264,13 +294,16 @@ function buildCalendarLinks(card) {
   let endM = endMinutesTotal % 60;
   const endLocal = `${y}${pad(m)}${pad(d)}T${pad(endH)}${pad(endM)}00`;
 
-  const playersList = card.slots
+  const playersList = getActiveSlots(card)
     .filter(s => s.name)
     .map(s => `Slot ${s.slot}: ${s.name}`)
     .join("\\n");
 
   const title = `Orchard Hills Tee Time (${formatFriendlyDateTime(card.date, card.time)})`;
-  const details = `The Orchard Connection — 9 Holes at Orchard Hills Golf Course (Paramus, NJ)\\nPlayers:\\n${playersList}\\n\\nBoard: ${SITE_URL}#${card.id}`;
+  const slotCount = getSlotCount(card);
+  // Legacy/4-spot cards keep the exact original text; only 1-3 spot cards add a "Spots" line.
+  const spotsLine = slotCount !== MAX_SLOTS ? `Spots: ${slotCount}\\n` : "";
+  const details = `The Orchard Connection — 9 Holes at Orchard Hills Golf Course (Paramus, NJ)\\n${spotsLine}Players:\\n${playersList}\\n\\nBoard: ${SITE_URL}#${card.id}`;
   const location = "Orchard Hills Golf Course, 404 Paramus Rd, Paramus, NJ 07652";
 
   const gcalParams = new URLSearchParams({
@@ -346,6 +379,12 @@ async function dispatchEmailJob(env, state, job) {
   };
 
   state.outbox.push(record);
+
+  // Local testing kill-switch: EMAIL_RELAY_DISABLED=1 (never set in production) skips all outbound email.
+  if (env && String(env.EMAIL_RELAY_DISABLED || "") === "1") {
+    record.relaySkipped = true;
+    return record;
+  }
 
   const webhookUrl = state.gasWebhookUrl || env.GAS_WEBHOOK_URL;
   if (webhookUrl && allowedRecipients.length > 0) {
@@ -436,7 +475,8 @@ function sanitizeBoard(state) {
         updatedAt: card.updatedAt || null,
         googleCalUrl: cal.googleCalUrl,
         icsUrl: cal.icsUrl,
-        slots: (card.slots || []).map(s => ({
+        slotCount: getSlotCount(card),
+        slots: getActiveSlots(card).map(s => ({
           slot: s.slot,
           name: s.name || null,
           filled: Boolean(s.name),
@@ -566,21 +606,25 @@ export default {
           return jsonResponse({ error: "Please select a valid tee time (HH:MM)." }, 400);
         }
 
+        const parsedCount = parseRequestedSlotCount(body.slotCount, MAX_SLOTS);
+        if (parsedCount.error) return jsonResponse({ error: parsedCount.error }, 400);
+        const slotCount = parsedCount.value;
+
         const state = await loadState(env);
-        const slots = [1, 2, 3, 4].map(num => ({
-          slot: num,
-          name: null,
-          email: null,
-          cancelToken: null,
-          claimedAt: null
-        }));
+        const slots = Array.from({ length: slotCount }, (_, i) => emptySlot(i + 1));
 
         for (const s of inputSlots) {
           const idx = Number(s.slot) - 1;
-          if (idx < 0 || idx > 3) continue;
+          if (!Number.isInteger(idx) || idx < 0 || idx > MAX_SLOTS - 1) continue;
           const sName = String(s.name || "").trim();
           const sEmail = String(s.email || "").trim().toLowerCase();
           if (!sName) continue;
+          if (idx >= slotCount) {
+            return jsonResponse(
+              { error: `This tee time has ${slotCount} spot${slotCount === 1 ? "" : "s"}, so ${sName} can't go in Slot ${idx + 1}. Raise the number of spots or move them to a lower slot.` },
+              400
+            );
+          }
 
           const reg = findOrRegisterPlayer(state, sName, sEmail);
           if (reg.error) return jsonResponse({ error: reg.error }, 400);
@@ -626,6 +670,7 @@ export default {
           posterCancelToken,
           createdAt: new Date().toISOString(),
           canceled: false,
+          slotCount,
           slots,
           chat: []
         };
@@ -690,7 +735,7 @@ export default {
           recipients: allNotify,
           googleCalUrl: cal.googleCalUrl,
           cancelUrl: !posterInAnySlot ? posterCardCancelUrl : null,
-          textBody: `${posterPlayer.name} posted a tee time at Orchard Hills Golf Course for ${friendlyWhen}${!posterInAnySlot ? " (Slot 1 left open for others!)" : ""}.\nOpen spots: ${openCount} of 4.\n\nClaim a spot on The Orchard Connection:\n${SITE_URL}#${newCard.id}`
+          textBody: `${posterPlayer.name} posted a tee time at Orchard Hills Golf Course for ${friendlyWhen}${!posterInAnySlot ? " (Slot 1 left open for others!)" : ""}.\nOpen spots: ${openCount} of ${slotCount}.\n\nClaim a spot on The Orchard Connection:\n${SITE_URL}#${newCard.id}`
         });
 
         await saveState(env, state);
@@ -800,22 +845,26 @@ export default {
           return jsonResponse({ error: "Please select a valid tee time (HH:MM)." }, 400);
         }
 
+        const currentSlotCount = getSlotCount(card);
+        const parsedCount = parseRequestedSlotCount(body.slotCount, currentSlotCount);
+        if (parsedCount.error) return jsonResponse({ error: parsedCount.error }, 400);
+        const newSlotCount = parsedCount.value;
+        const overLimitMsg = (slotNum, name) =>
+          `Can't reduce to ${newSlotCount} spot${newSlotCount === 1 ? "" : "s"}: Slot ${slotNum} still has ${name}. Clear that player in this edit (or keep at least ${slotNum} spots) and save again.`;
+
         const inputSlots = Array.isArray(body.slots) ? body.slots : null;
-        const newSlots = [1, 2, 3, 4].map(num => ({
-          slot: num,
-          name: null,
-          email: null,
-          cancelToken: null,
-          claimedAt: null
-        }));
+        const newSlots = Array.from({ length: newSlotCount }, (_, i) => emptySlot(i + 1));
 
         if (inputSlots) {
           for (const s of inputSlots) {
             const idx = Number(s.slot) - 1;
-            if (idx < 0 || idx > 3) continue;
+            if (!Number.isInteger(idx) || idx < 0 || idx > MAX_SLOTS - 1) continue;
             const sName = String(s.name || "").trim();
             const sEmail = String(s.email || "").trim().toLowerCase();
             if (!sName) continue;
+            if (idx >= newSlotCount) {
+              return jsonResponse({ error: overLimitMsg(idx + 1, sName) }, 400);
+            }
 
             // Check if this player was already on the card (preserving existing email/cancelToken)
             const prevSameSlot = oldSlots[idx];
@@ -861,8 +910,14 @@ export default {
             }
           }
         } else {
-          for (let i = 0; i < 4; i++) {
-            if (oldSlots[i]) newSlots[i] = { ...oldSlots[i], slot: i + 1 };
+          for (let i = 0; i < MAX_SLOTS; i++) {
+            const prev = oldSlots[i];
+            if (!prev) continue;
+            if (i >= newSlotCount) {
+              if (prev.name) return jsonResponse({ error: overLimitMsg(i + 1, prev.name) }, 400);
+              continue;
+            }
+            newSlots[i] = { ...prev, slot: i + 1 };
           }
         }
 
@@ -873,6 +928,13 @@ export default {
         card.date = newDate;
         card.time = newTime;
         card.slots = newSlots;
+        // Only store slotCount when the request specified it or the card already had one,
+        // so legacy cards edited by older clients stay exactly as they were.
+        if (body.slotCount !== undefined && body.slotCount !== null && body.slotCount !== "") {
+          card.slotCount = newSlotCount;
+        } else if (card.slotCount !== undefined) {
+          card.slotCount = newSlotCount;
+        }
         card.updatedAt = new Date().toISOString();
 
         const newFriendlyWhen = formatFriendlyDateTime(newDate, newTime);
@@ -911,8 +973,9 @@ export default {
 
         // Notify players on the tee time (and registered list if time changed or spots opened)
         const openCount = newSlots.filter(s => !s.name).length;
+        const slotCountChanged = newSlotCount !== currentSlotCount;
         const notifyPool =
-          dateTimeChanged || removedSlots.length > 0
+          dateTimeChanged || removedSlots.length > 0 || newSlotCount > currentSlotCount
             ? [
                 ...state.players.map(p => ({ name: p.name, email: p.email })),
                 ...oldSlots.filter(s => s.name).map(s => ({ name: s.name, email: s.email })),
@@ -937,6 +1000,9 @@ export default {
             `Removed: ${removedSlots.map(s => `${s.name} (Slot ${s.slot})`).join(", ")}`
           );
         }
+        if (slotCountChanged) {
+          changeSummaryParts.push(`Spots changed from ${currentSlotCount} to ${newSlotCount}`);
+        }
         const summaryLine =
           changeSummaryParts.length > 0
             ? changeSummaryParts.join(" · ")
@@ -949,7 +1015,7 @@ export default {
           recipients: notifyPool,
           icsContent: dateTimeChanged ? cal.icsContent : null,
           googleCalUrl: cal.googleCalUrl,
-          textBody: `${poster.name || newSlots[0].name || "The organizer"} updated the Orchard Hills tee time (${newFriendlyWhen}).\n${summaryLine}\nOpen spots: ${openCount} of 4.\n\nUpdated Calendar Invite: ${cal.googleCalUrl}\nView Board: ${SITE_URL}#${card.id}`
+          textBody: `${poster.name || newSlots[0].name || "The organizer"} updated the Orchard Hills tee time (${newFriendlyWhen}).\n${summaryLine}\nOpen spots: ${openCount} of ${newSlotCount}.\n\nUpdated Calendar Invite: ${cal.googleCalUrl}\nView Board: ${SITE_URL}#${card.id}`
         });
 
         await saveState(env, state);
@@ -973,7 +1039,7 @@ export default {
         const rawName = String(body.name || "").trim();
         const rawEmail = String(body.email || "").trim().toLowerCase();
 
-        if (!cardId || slotNum < 1 || slotNum > 4 || !rawName) {
+        if (!cardId || !Number.isInteger(slotNum) || slotNum < 1 || slotNum > MAX_SLOTS || !rawName) {
           return jsonResponse({ error: "Card ID, slot number (1-4), and player name are required." }, 400);
         }
 
@@ -981,7 +1047,14 @@ export default {
         const card = state.teeTimes.find(t => t.id === cardId && !t.canceled);
         if (!card) return jsonResponse({ error: "Tee time card not found." }, 404);
 
-        const targetSlot = card.slots.find(s => s.slot === slotNum);
+        const cardSlotCount = getSlotCount(card);
+        if (slotNum > cardSlotCount) {
+          return jsonResponse(
+            { error: `This tee time only has ${cardSlotCount} spot${cardSlotCount === 1 ? "" : "s"}; Slot ${slotNum} isn't available.` },
+            400
+          );
+        }
+        const targetSlot = getActiveSlots(card).find(s => s.slot === slotNum);
         if (!targetSlot) return jsonResponse({ error: "Invalid slot number." }, 400);
         if (targetSlot.name) {
           return jsonResponse({ error: `Slot ${slotNum} is already claimed by ${targetSlot.name}.` }, 409);
@@ -998,7 +1071,7 @@ export default {
         const cal = buildCalendarLinks(card);
         const friendlyWhen = formatFriendlyDateTime(card.date, card.time);
         const cancelUrl = `${SITE_URL}?cancel=${encodeURIComponent(targetSlot.cancelToken)}`;
-        const openCount = card.slots.filter(s => !s.name).length;
+        const openCount = getActiveSlots(card).filter(s => !s.name).length;
 
         await dispatchEmailJob(env, state, {
           type: "slot_confirmation",
@@ -1024,14 +1097,14 @@ export default {
 
         const allNotify = [
           ...state.players.map(p => ({ name: p.name, email: p.email })),
-          ...card.slots.filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
+          ...getActiveSlots(card).filter(s => s.name).map(s => ({ name: s.name, email: s.email }))
         ];
         await dispatchEmailJob(env, state, {
           type: "slot_claimed",
           cardId: card.id,
           subject: `⛳ Spot Claimed: ${targetSlot.name} joined Orchard Hills (${friendlyWhen}) — ${openCount} open`,
           recipients: allNotify,
-          textBody: `${targetSlot.name} claimed Slot ${slotNum} for Orchard Hills on ${friendlyWhen}. (${openCount} spot${openCount === 1 ? "" : "s"} remaining).\n\nView Board: ${SITE_URL}#${card.id}`
+          textBody: `${targetSlot.name} claimed Slot ${slotNum} for Orchard Hills on ${friendlyWhen}. (${openCount} of ${cardSlotCount} spot${cardSlotCount === 1 ? "" : "s"} remaining).\n\nView Board: ${SITE_URL}#${card.id}`
         });
 
         await saveState(env, state);
@@ -1073,7 +1146,7 @@ export default {
             isEntireCardCancel = true;
             break;
           }
-          for (const s of card.slots) {
+          for (const s of card.slots || []) {
             if (token && s.cancelToken === token) {
               foundCard = card;
               foundSlot = s;
@@ -1130,7 +1203,8 @@ export default {
           foundSlot.email = null;
           foundSlot.cancelToken = null;
           foundSlot.claimedAt = null;
-          const openCount = foundCard.slots.filter(s => !s.name).length;
+          const openCount = getActiveSlots(foundCard).filter(s => !s.name).length;
+          const foundSlotCount = getSlotCount(foundCard);
 
           cancelResult = {
             action: "slot_reopened",
@@ -1146,7 +1220,7 @@ export default {
             cardId: foundCard.id,
             subject: `🟢 Spot Opened Up! Orchard Hills — ${friendlyWhen} (${openCount} open)`,
             recipients: allNotify,
-            textBody: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} for Orchard Hills on ${friendlyWhen}. Slot ${reopenedSlotNum} is now open!\n\nGrab the spot here:\n${SITE_URL}#${foundCard.id}`
+            textBody: `${canceledPlayerName} dropped from Slot ${reopenedSlotNum} for Orchard Hills on ${friendlyWhen}. Slot ${reopenedSlotNum} is now open (${openCount} of ${foundSlotCount} open).\n\nGrab the spot here:\n${SITE_URL}#${foundCard.id}`
           });
         }
 
@@ -1190,7 +1264,7 @@ export default {
         card.chat.push(msg);
 
         const friendlyWhen = formatFriendlyDateTime(card.date, card.time);
-        const cardRecipients = card.slots
+        const cardRecipients = getActiveSlots(card)
           .filter(s => s.name && s.email)
           .map(s => ({ name: s.name, email: s.email }));
 

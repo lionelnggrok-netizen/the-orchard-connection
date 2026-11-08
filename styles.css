@@ -2033,3 +2033,98 @@ body {
     text-overflow: clip;
   }
 }
+
+/* ---- Spots on this tee time (1-4) picker — Add form + Edit drawer (v20261107a) ---- */
+.spot-count-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.spot-count-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--emerald-800);
+  white-space: nowrap;
+}
+
+.spot-count-options {
+  display: inline-flex;
+  border: 1px solid #86efac;
+  border-radius: 999px;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.spot-count-options label {
+  position: relative;
+  cursor: pointer;
+  margin: 0;
+}
+
+.spot-count-options input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+.spot-count-options span {
+  display: inline-block;
+  min-width: 32px;
+  padding: 5px 0;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  color: #14532d;
+  border-left: 1px solid #dcfce7;
+  transition: background 0.12s ease, color 0.12s ease;
+  user-select: none;
+}
+
+.spot-count-options label:first-child span {
+  border-left: none;
+}
+
+.spot-count-options input[type="radio"]:checked + span {
+  background: #15803d;
+  color: #ffffff;
+}
+
+.spot-count-options input[type="radio"]:focus-visible + span {
+  outline: 2px solid #15803d;
+  outline-offset: -2px;
+}
+
+.spot-count-picker-edit {
+  margin-top: 10px;
+}
+
+.card-frost-risk .spot-count-label {
+  color: #0369a1;
+}
+
+.edit-slot-item.edit-slot-over {
+  border-color: #fca5a5;
+  background: #fff7f7;
+}
+
+.edit-slot-over-note {
+  flex-basis: 100%;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: #b91c1c;
+}
+
+@media (max-width: 560px) {
+  .spot-count-picker {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .spot-count-options span {
+    min-width: 38px;
+    padding: 6px 0;
+  }
+}
