@@ -889,7 +889,8 @@ function renderTeeTimeCard(card, isPast = false) {
             class="chat-sender-input"
             list="registeredPlayersDatalist"
             placeholder="Your Name"
-            value="Lionel Ng"
+            value="${escapeHtml(getSavedChatName())}"
+            autocomplete="name"
             required
           />
           <input
@@ -1332,6 +1333,7 @@ function bindCardInteractiveEvents() {
       const senderName = String(senderInput.value || "").trim();
       const text = String(textInput.value || "").trim();
       if (!senderName || !text) return;
+      saveChatName(senderName);
 
       const submitBtn = form.querySelector("button[type='submit']");
       submitBtn.disabled = true;
@@ -1357,6 +1359,14 @@ function bindCardInteractiveEvents() {
       }
     });
   });
+}
+
+function getSavedChatName() {
+  try { return localStorage.getItem("orchardChatName") || ""; } catch { return ""; }
+}
+
+function saveChatName(name) {
+  try { localStorage.setItem("orchardChatName", name); } catch {}
 }
 
 async function handleUrlCancelTokenIfPresent() {
